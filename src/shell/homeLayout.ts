@@ -70,6 +70,11 @@ const widgetChars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvw
 const widgetKinds: HomeWidgetKind[] = ["text", "status", "line", "rect", "progress", "media", "external"];
 const statusSources: HomeStatusSource[] = ["eth", "hdmi", "hid", "wifi", "live"];
 const ipRotation = createIpRotation();
+let homeRotationAt = Infinity;
+
+export function homeRefreshAt(): number {
+  return homeRotationAt;
+}
 let cpuSampleAt = 0;
 let cpuSample: number | null = null;
 
@@ -161,12 +166,16 @@ export function readHomeLayout(): HomeLayout {
     cpuSampleAt = sampledAt;
     cpuSample = status.cpuPercent;
   }
+  const cpuPending = status.cpuPercent !== cpuSample;
   status.cpuPercent = cpuSample;
   let saved = Array.isArray(config.home_widgets) ? config.home_widgets :
     Array.isArray(config.complications) ? config.complications.map((id, index) => ({ id, slot: classic.slots[index % 3].id })) : [];
   const savedPlacements = saved;
   if (faceId === dashboard.id && config.dashboard_layout !== true) saved = [...dashboardWidgets(scr.w, scr.h), ...saved];
   const widgets: PlacedWidget[] = [];
+  const rotatingWidgets = new Set<string>();
+  const cpuWidgets = new Set<string>();
+  const dateWidgets = new Set<string>();
   const occupied = new Set<string>();
   for (const raw of saved) {
     const placement = obj(raw);
@@ -201,6 +210,9 @@ export function readHomeLayout(): HomeLayout {
       y = num(placement.y, legacySlot?.y ?? 88, 0, 100);
     }
     const template = text(placement.text, defaultText(kind, data));
+    if (template.includes("{ip}")) rotatingWidgets.add(placement.id);
+    if (/\{cpu_(used|free|available|percent|value)\}/.test(template) || (kind === "progress" && (!placement.metric || placement.metric === "cpu"))) cpuWidgets.add(placement.id);
+    if (template.includes("{date}")) dateWidgets.add(placement.id);
     const expanded = expandHomeWidgetTemplate(template, status);
     const safeText = [...expanded].slice(0, 24).map((char) => widgetChars.includes(char) ? char : "?").join("");
     const sourceStatus = statusSource(placement.status);
@@ -231,6 +243,13 @@ export function readHomeLayout(): HomeLayout {
     });
   }
   const visible = widgets.slice(0, MAX_HOME_WIDGETS);
+  homeRotationAt = visible.some(widget => rotatingWidgets.has(widget.id)) ? ipRotation.deadline() : Infinity;
+  if (cpuPending && visible.some(widget => cpuWidgets.has(widget.id))) homeRotationAt = Math.min(homeRotationAt, cpuSampleAt + 5000);
+  if (visible.some(widget => dateWidgets.has(widget.id))) {
+    const midnight = new Date();
+    midnight.setHours(24, 0, 0, 0);
+    homeRotationAt = Math.min(homeRotationAt, midnight.getTime());
+  }
   const layers = homeLayerOrder(visible.map(widget => widget.id), config.layer_order);
   const depth = new Map(layers.map((id, index) => [id, index]));
   visible.sort((a, b) => depth.get(a.id)! - depth.get(b.id)!);

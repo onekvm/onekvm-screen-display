@@ -21,6 +21,7 @@ mod diagnostics;
 mod devtools;
 mod adb_debug;
 mod dynamic_fonts;
+mod sized_fonts;
 mod hid;
 mod guest;
 mod frame_timer;
@@ -55,12 +56,15 @@ mod remote_video;
 mod retained_frame;
 mod storage;
 mod system_actions;
+mod touch_calibration;
 mod touch_navigation;
 mod video_decode;
 mod wake;
 mod widget_media;
 #[cfg(test)]
 mod shell_lifecycle_tests;
+#[cfg(test)]
+mod init_preview_tests;
 
 use std::fs::{self, File, OpenOptions};
 use std::hash::{Hash, Hasher};
@@ -265,7 +269,6 @@ struct Session {
     icon_textures: std::collections::BTreeMap<String, i32>,
     views: Option<Box<screen_views::Views>>,
     rendered_shell_page: Option<u8>,
-    shell_collected: Instant,
 }
 
 impl Drop for Session {
@@ -341,6 +344,23 @@ struct Panel {
     rotate: u16,
     remote_frame: remote::PresentedFrame,
     vsync_ok: bool,
+    /// The machine's boot bar may still be animating on the panel.
+    boot_splash: bool,
+}
+
+/// Pro Desk boot bar hand-off; other machines have no such helper or ignore it.
+const BOOT_SPLASH: &str = "/usr/sbin/onekvm-boot-splash";
+
+fn boot_splash(args: &[&str]) {
+    if fs::metadata(BOOT_SPLASH).is_err() {
+        return;
+    }
+    let _ = std::process::Command::new(BOOT_SPLASH)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
 }
 
 struct Touch {
@@ -348,6 +368,7 @@ struct Touch {
     ready: Option<input_ready::InputReady>,
     max_x: i32,
     max_y: i32,
+    calibration: touch_calibration::TouchCalibration,
     x: i32,
     y: i32,
     lx: i32,
@@ -682,7 +703,6 @@ fn run() -> Result<()> {
         let (h, m, _) = wall_hms();
         h * 60 + m
     };
-    let mut last_second = -1i32;
     let mut enter: Option<EnterFade> = None;
     let mut app_home = touch_navigation::Navigation::default();
     let mut app_pixels = vec![0u16; panel.face_len()];
@@ -696,7 +716,14 @@ fn run() -> Result<()> {
     let mut was_blanked = false;
 
     heap::release_cold_code_pages();
+    // The first frames still load fonts, launcher icons and PAK resources.
+    // Release those startup pages once the home screen has settled.
+    let mut settled_release = Some(Instant::now() + Duration::from_secs(15));
     loop {
+        if settled_release.is_some_and(|at| Instant::now() >= at) {
+            settled_release = None;
+            heap::release_cold_code_pages();
+        }
         let wake_generation = shared.wake.generation();
         let debug_deadline = Instant::now() + Duration::from_millis(100);
         let debug_changed = live.as_mut().is_some_and(|session| session.poll_devtools(debug_deadline))
@@ -738,7 +765,9 @@ fn run() -> Result<()> {
             last_words.clear();
             settle = 3;
         }
-        let guest_frame_due = shared.frame_timer.take_due();
+        let shell_active = live.as_ref().is_some_and(|session| session.id == "shell");
+        let guest_frame_due = shared.frame_timer.take_due()
+            | (shell_active && shared.shell_timer.take_due());
 
         if live
             .as_ref()
@@ -840,6 +869,9 @@ fn run() -> Result<()> {
                     || shared.hot()
                     || settle > 0
                     || touching
+                    // Released touch leaves no input to wake the loop; the
+                    // cached snap must keep its frame rate until it lands.
+                    || pager_motion_claimed(motion)
                     || linger
                     || hint_on
                     || chrome.animating()
@@ -858,6 +890,9 @@ fn run() -> Result<()> {
                 },
             );
         let deadline = shared.frame_timer.deadline().map_or(deadline, |at| deadline.min(at));
+        let deadline = if shell_active {
+            shared.shell_timer.deadline().map_or(deadline, |at| deadline.min(at))
+        } else { deadline };
         let released = was_touching && !touching;
         // Host paging and edge gestures must use the same merged contact as
         // the guest, including remote input. Keep the last point for release.
@@ -892,7 +927,7 @@ fn run() -> Result<()> {
         chrome_dirty |= pill_on != last_pill_on;
         chrome_dirty |= chrome.animating();
         last_pill_on = pill_on;
-        let (hh, mm, ss) = wall_hms();
+        let (hh, mm, _) = wall_hms();
         let hm = hh * 60 + mm;
 
         if let Some(mut transition) = app_page_transition.take() {
@@ -1154,10 +1189,7 @@ fn run() -> Result<()> {
                     settle = 2;
                 }
             } else {
-                let minute_changed = hm != last_hm;
-                let second_changed = ss != last_second
-                    && live.as_ref().unwrap().id == "shell"
-                    && shared.shell_page() == 0;
+                let minute_changed = hm != last_hm && !shell_active;
                 let hot = touching
                     || guest_frame_due
                     || released
@@ -1165,7 +1197,6 @@ fn run() -> Result<()> {
                     || shared.hot()
                     || settle > 0
                     || minute_changed
-                    || second_changed
                     || chrome_dirty
                     || hint_on
                     || stream_view
@@ -1198,7 +1229,6 @@ fn run() -> Result<()> {
                         last_stream_seq = seq;
                     }
                     last_hm = hm;
-                    last_second = ss;
                     settle = settle.saturating_sub(1);
                 } else if stick_view {
                     framed = true;
@@ -1213,7 +1243,6 @@ fn run() -> Result<()> {
                     overlay_chrome(&mut chrome, &mut chrome_words, &mut pixels)?;
                     panel.present(&pixels);
                     last_hm = hm;
-                    last_second = ss;
                     settle = settle.saturating_sub(1);
                 } else if hot {
                     framed = true;
@@ -1310,7 +1339,6 @@ fn run() -> Result<()> {
                         panel.present(&pixels);
                     }
                     last_hm = hm;
-                    last_second = ss;
                     settle = settle.saturating_sub(1);
                 }
                 last_slide = i32::MIN;
@@ -1570,8 +1598,16 @@ fn restore_parked(
             if let Some(selected) = cache[page].clone() {
                 pixels.copy_from_slice(&selected);
             }
+        } else if session.rendered_shell_page == Some(1) {
+            // The parked guest still holds the launcher that opened the App.
+            // Repainting it without touches is cheap (no page change) and
+            // replaces a snapshot that may show the pressed row, so the next
+            // swipe needs no synchronous launcher render.
+            capture_shell_page(session, shared, last_words, pixels, cache, 1)?;
         } else {
             cache[1] = None;
+        }
+        if !stale {
             if let Some(selected) = cache[page].clone() {
                 pixels.copy_from_slice(&selected);
             } else {
@@ -1579,6 +1615,7 @@ fn restore_parked(
                 cache[page] = Some(pixels.to_vec());
             }
         }
+        shared.shell_timer.schedule(Duration::ZERO);
     } else if session.id == "stream" || session.id == "carplay/main" {
         shared.set_pager(false);
         blit_foreground(shared, &session.id, pixels);
@@ -1743,12 +1780,11 @@ fn paint_shell_guest(
         .guest
         .frame_with_touches(0, ANALOG_CENTER, &delivered)?;
     let page = shared.shell_render_page();
-    if session.rendered_shell_page != Some(page) || session.shell_collected.elapsed() >= Duration::from_secs(1) {
+    if session.rendered_shell_page != Some(page) {
         // Native page snapshots keep transitions smooth after the old page's
         // Vue scope is disposed. Reclaim its cycles at this ownership boundary.
         session.guest.collect();
         session.rendered_shell_page = Some(page);
-        session.shell_collected = Instant::now();
     }
     session.surface.release_unused_images();
     let guest_done = Instant::now();
@@ -1907,17 +1943,14 @@ fn ensure_shell_pages(
     pixels: &mut [u16],
     cache: &mut [Option<Vec<u16>>; 2],
 ) -> Result<()> {
-    let mut captured = false;
     for page in [0u8, 1] {
         if cache[page as usize].is_none() {
             capture_shell_page(session, shared, last_words, pixels, cache, page)?;
-            captured = true;
         }
     }
-    if captured {
-        paint_shell_guest(session, &[], last_words, pixels, shared, false)?;
-        paint_shell_guest(session, &[], last_words, pixels, shared, false)?;
-    }
+    // The host composes the drag from both snapshots. Leave the guest on the
+    // page it just rendered: a swipe usually lands there, and repainting the
+    // current page first doubled the wait before the first moving frame.
     Ok(())
 }
 
@@ -2234,7 +2267,7 @@ fn step_app_home(
     )
 }
 
-fn mount_onekvm(guest: &Guest, shared: Arc<Shared>, id: &str, rpc: Arc<app_rpc::Session>, fonts: Option<dynamic_fonts::NetworkFonts>, view: Option<Arc<screen_views::Bridge>>) -> Result<()> {
+fn mount_onekvm(guest: &Guest, shared: Arc<Shared>, id: &str, rpc: Arc<app_rpc::Session>, fonts: Option<dynamic_fonts::NetworkFonts>, sized: sized_fonts::SizedFonts, view: Option<Arc<screen_views::Bridge>>) -> Result<()> {
     let system_controls = id == "settings";
     let contributed = id.contains('/');
     let local_recovery = crate::mode::local_recovery_guest(id, crate::mode::is_init());
@@ -2247,6 +2280,17 @@ fn mount_onekvm(guest: &Guest, shared: Arc<Shared>, id: &str, rpc: Arc<app_rpc::
         let get_qr = qr_code.clone();
         let get_view = view.clone();
         let fonts = std::cell::RefCell::new(fonts);
+        let sized = std::cell::RefCell::new(sized);
+        // Text at any px: [slot, line height, baseline, cap height] for a
+        // Text box, or [] when the size or font is unavailable.
+        ns.set(
+            "font",
+            Function::new(ctx.clone(), move |px: f64, text: String| -> Vec<f64> {
+                sized.borrow_mut().request(px, &text).map_or_else(Vec::new, |(slot, m)| {
+                    vec![slot as f64, m.line_height as f64, m.baseline as f64, m.cap_height as f64]
+                })
+            }),
+        )?;
         ns.set(
             "get",
             Function::new(ctx.clone(), move |key: String| -> String {
@@ -2392,6 +2436,8 @@ impl Panel {
         let map = unsafe { MmapOptions::new().len(map_len).map_mut(&file) }.context("mmap fb0")?;
         let remote_frame = remote::PresentedFrame::new(&map, width, height, stride.max(width));
         log::info!("fb0 {width}x{height} stride={stride}");
+        // Loading the UI takes seconds; mark that checkpoint on the boot bar.
+        boot_splash(&["progress", "screen"]);
         Ok(Self {
             file,
             map,
@@ -2403,6 +2449,7 @@ impl Panel {
             rotate: 0,
             remote_frame,
             vsync_ok: true,
+            boot_splash: true,
         })
     }
 
@@ -2429,7 +2476,15 @@ impl Panel {
             && self.stride == self.width
     }
 
+    /// Stop the boot bar animation before this process first writes the panel.
+    fn take_over_boot_splash(&mut self) {
+        if std::mem::take(&mut self.boot_splash) {
+            boot_splash(&["finish"]);
+        }
+    }
+
     fn blit_scratch(&mut self) -> bool {
+        self.take_over_boot_splash();
         let changed = damage::copy_changed_rows(
             self.map.as_mut(),
             self.remote_frame.pixels(),
@@ -2444,6 +2499,7 @@ impl Panel {
     }
 
     fn blit_words(&mut self, src: &[u16]) -> bool {
+        self.take_over_boot_splash();
         let changed = damage::copy_changed_rows(self.map.as_mut(), src, self.width, self.height, self.stride);
         if changed {
             self.remote_frame.update(src);
@@ -2467,31 +2523,7 @@ impl Panel {
             self.blit_words(src)
         } else {
             let (w, h) = (self.width, self.height);
-            let scratch = self.remote_frame.pixels_mut();
-            // Pro is 172×320 physical, 320×172 logical, rotated 270. The
-            // general per-pixel match was most of the CPU before the SPI wait.
-            if rot == 270 && h == lw && w == lh && lw > 0 {
-                let last = lw - 1;
-                for y in 0..h {
-                    let src_x = last - y;
-                    let row = y * w;
-                    for x in 0..w {
-                        scratch[row + x] = src[x * lw + src_x];
-                    }
-                }
-            } else {
-                let stride = lw.max(1);
-                for y in 0..h {
-                    for x in 0..w {
-                        let (lx, ly) = unrotate_px(x, y, rot, lw, lh);
-                        scratch[y * w + x] = if lx < lw && ly < lh {
-                            src[ly * stride + lx]
-                        } else {
-                            0
-                        };
-                    }
-                }
-            }
+            rotate_frame(self.remote_frame.pixels_mut(), src, w, h, rot, lw, lh);
             self.blit_scratch()
         };
         if changed {
@@ -2563,7 +2595,12 @@ impl Touch {
             let max_y =
                 abs_max(&device, AbsoluteAxisCode::ABS_Y).unwrap_or((panel.height as i32) - 1);
             let _ = device.set_nonblocking(true);
-            log::info!("evdev {} abs_max={max_x}", ent.path().display());
+            let calibration = touch_calibration::TouchCalibration::load();
+            log::info!(
+                "evdev {} abs_max={max_x},{max_y}{}",
+                ent.path().display(),
+                if calibration.is_identity() { "" } else { " calibrated" }
+            );
             let ready = if std::env::var_os("ONEKVM_SCREEN_TOUCH_POLL").is_some() {
                 None
             } else {
@@ -2577,6 +2614,7 @@ impl Touch {
                 ready,
                 max_x: max_x.max(1),
                 max_y: max_y.max(1),
+                calibration,
                 x: 0,
                 y: 0,
                 lx: 0,
@@ -2607,10 +2645,14 @@ impl Touch {
         if !self.down {
             return Vec::new();
         }
-        let px = self.x * (panel.width as i32 - 1) / self.max_x;
-        let py = self.y * (panel.height as i32 - 1) / self.max_y;
-        let px = px.clamp(0, panel.width as i32 - 1) as usize;
-        let py = py.clamp(0, panel.height as i32 - 1) as usize;
+        let (px, py) = self.calibration.panel_px(
+            self.x,
+            self.y,
+            self.max_x,
+            self.max_y,
+            panel.width as i32,
+            panel.height as i32,
+        );
         let (lx, ly) = unrotate_px(px, py, panel.rotate, panel.logical_w, panel.logical_h);
         self.lx = lx as i32;
         self.ly = ly as i32;
@@ -2865,7 +2907,8 @@ fn boot_surface_session(id: &str, shared: &Arc<Shared>, view: Option<Arc<screen_
     }
     let fonts = matches!(id, "settings" | "init" | "virtual-media")
         .then(|| dynamic_fonts::NetworkFonts::new(bundle.clone(), surface.clone()));
-    mount_onekvm(&guest, shared.clone(), id, rpc.clone(), fonts, view.clone())?;
+    let sized = sized_fonts::SizedFonts::new(surface.clone(), sized_fonts::pak_density(&bundle.pak));
+    mount_onekvm(&guest, shared.clone(), id, rpc.clone(), fonts, sized, view.clone())?;
     surface.mount(&guest)?;
     if id == "shell" {
         let resources = bundle.clone();
@@ -2916,7 +2959,6 @@ fn boot_surface_session(id: &str, shared: &Arc<Shared>, view: Option<Arc<screen_
         home_frame: retained_frame::RetainedFrame::default(),
         views: (id == "shell").then(|| Box::new(screen_views::Views::default())),
         rendered_shell_page: None,
-        shell_collected: Instant::now(),
     })
 }
 
@@ -2950,6 +2992,45 @@ fn rot_delta(from: u16, to: u16) -> f32 {
     d as f32
 }
 
+/// Map a logical frame into physical framebuffer order.
+fn rotate_frame(dst: &mut [u16], src: &[u16], w: usize, h: usize, rot: u16, lw: usize, lh: usize) {
+    // Pro (rotated 270) and Go (rotated 90) present every animation frame
+    // through here. The general per-pixel match was most of the CPU before the
+    // SPI wait, so quarter turns and half turns use direct index arithmetic.
+    let quarter = h == lw && w == lh && lw > 0 && lh > 0;
+    match rot {
+        270 if quarter => {
+            for y in 0..h {
+                let src_x = lw - 1 - y;
+                for (x, out) in dst[y * w..(y + 1) * w].iter_mut().enumerate() {
+                    *out = src[x * lw + src_x];
+                }
+            }
+        }
+        90 if quarter => {
+            for y in 0..h {
+                for (x, out) in dst[y * w..(y + 1) * w].iter_mut().enumerate() {
+                    *out = src[(lh - 1 - x) * lw + y];
+                }
+            }
+        }
+        180 if w == lw && h == lh => {
+            for (out, pixel) in dst[..w * h].iter_mut().zip(src[..w * h].iter().rev()) {
+                *out = *pixel;
+            }
+        }
+        _ => {
+            let stride = lw.max(1);
+            for y in 0..h {
+                for x in 0..w {
+                    let (lx, ly) = unrotate_px(x, y, rot, lw, lh);
+                    dst[y * w + x] = if lx < lw && ly < lh { src[ly * stride + lx] } else { 0 };
+                }
+            }
+        }
+    }
+}
+
 fn unrotate_px(x: usize, y: usize, rot: u16, lw: usize, lh: usize) -> (usize, usize) {
     let xm = lw.saturating_sub(1);
     let ym = lh.saturating_sub(1);
@@ -2964,6 +3045,20 @@ fn unrotate_px(x: usize, y: usize, rot: u16, lw: usize, lh: usize) -> (usize, us
 #[cfg(test)]
 mod pager_cancel_tests {
     use super::*;
+
+    #[test]
+    fn rotation_fast_paths_match_the_general_mapping() {
+        for (rot, lw, lh) in [(90u16, 7usize, 5usize), (270, 7, 5), (180, 7, 5), (0, 7, 5)] {
+            let (w, h) = if rot % 180 == 90 { (lh, lw) } else { (lw, lh) };
+            let src: Vec<u16> = (0..lw * lh).map(|i| i as u16 + 1).collect();
+            let mut fast = vec![0; w * h];
+            rotate_frame(&mut fast, &src, w, h, rot, lw, lh);
+            let general: Vec<u16> = (0..w * h)
+                .map(|i| { let (lx, ly) = unrotate_px(i % w, i / w, rot, lw, lh); src[ly * lw + lx] })
+                .collect();
+            assert_eq!(fast, general, "rotate {rot}");
+        }
+    }
 
     fn down(id: u32, x: u32, y: u32) -> u32 {
         (id << 18) | (y << 9) | x

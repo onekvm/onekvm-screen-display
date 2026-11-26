@@ -66,4 +66,18 @@ mod tests {
         timer.clear();
         assert!(!timer.take_due_at(old + Duration::from_secs(10)));
     }
+
+    #[test]
+    fn shell_clock_is_independent_of_app_and_compositor_redraws() {
+        let shell = FrameTimer::default();
+        let guest = FrameTimer::default();
+        shell.schedule(Duration::from_secs(60));
+        let minute = shell.deadline().unwrap();
+        guest.schedule(Duration::from_millis(16));
+        assert!(!shell.take_due_at(guest.deadline().unwrap()));
+        guest.clear();
+        assert_eq!(shell.deadline(), Some(minute));
+        assert!(shell.take_due_at(minute));
+        assert!(!shell.take_due_at(minute + Duration::from_secs(1)));
+    }
 }

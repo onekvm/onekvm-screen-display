@@ -7,6 +7,7 @@ export function createIpRotation() {
   let deadline = Infinity
   let previousTime = 0
   return {
+    deadline: () => deadline,
     update(status: HomeWidgetStatus, now = Date.now()): HomeWidgetStatus {
       const next = status.ipv4Addresses.length ? status.ipv4Addresses : status.primaryIp ? [status.primaryIp] : []
       if (now < previousTime || next.length !== addresses.length || next.some((ip, i) => ip !== addresses[i])) {

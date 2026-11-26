@@ -50,6 +50,41 @@ fn catalog_rebuilds_release_page_scopes() -> anyhow::Result<()> {
 type ShellKeys = Arc<Mutex<BTreeMap<String, String>>>;
 
 #[test]
+#[ignore = "requires regenerated shell bundle; verifies change-driven clock deadlines"]
+fn idle_shell_schedules_visible_clock_and_reloads_settings_on_revision() -> anyhow::Result<()> {
+    let layout = |face: &str, visible: bool| serde_json::json!({
+        "face": face, "clock_enabled": visible, "home_widgets": []
+    }).to_string();
+    let (guest, surface, keys) = shell_fixture(&layout("screen-display/minimal", true))?;
+    guest.eval("fixed-clock", "Date.now = () => 12345")?;
+    let paint = || -> anyhow::Result<()> {
+        guest.frame(0)?;
+        surface.tick();
+        Ok(())
+    };
+    paint()?;
+    assert_eq!(keys.lock().unwrap().get("shellFrameAfter").unwrap(), "47655");
+    guest.eval("count-parses", "globalThis.parses=0;const parse=JSON.parse;JSON.parse=(...args)=>{parses++;return parse(...args)}")?;
+    for _ in 0..3 { paint()?; }
+    assert_eq!(guest.with(|ctx| ctx.globals().get::<_, i32>("parses").unwrap()), 0);
+    {
+        let mut keys = keys.lock().unwrap();
+        keys.insert("layout".into(), layout("screen-display/classic", true));
+        keys.insert("homeGen".into(), "2".into());
+    }
+    paint()?;
+    assert_eq!(keys.lock().unwrap().get("shellFrameAfter").unwrap(), "655");
+    {
+        let mut keys = keys.lock().unwrap();
+        keys.insert("layout".into(), layout("screen-display/classic", false));
+        keys.insert("homeGen".into(), "3".into());
+    }
+    paint()?;
+    assert_eq!(keys.lock().unwrap().get("shellFrameAfter").unwrap(), "0");
+    Ok(())
+}
+
+#[test]
 #[ignore = "manual native/QuickJS memory breakdown"]
 fn report_shell_memory_profile() -> anyhow::Result<()> {
     let layout = std::env::var("ONEKVM_PROFILE_LAYOUT").ok().map(std::fs::read_to_string).transpose()?.unwrap_or_else(|| r#"{"face":"screen-display/dashboard","clock_enabled":true,"home_widgets":[]}"#.into());

@@ -7,7 +7,8 @@ import { HintBar } from "../chrome/HintBar";
 import { nowParts } from "./clock";
 import { device, requestPageSlide, requestShellPage, screenSize } from "./device";
 import { HomeFace } from "./HomeFace";
-import { readHomeLayout } from "./homeLayout";
+import { homeRefreshAt, readHomeLayout } from "./homeLayout";
+import { nextShellDelay } from "./deadlines";
 import { createHomeState } from "./homeState";
 import { knobRow } from "./ListRow";
 import { ShellPager } from "./ShellPager";
@@ -64,8 +65,8 @@ export default function Shell() {
   const widgetFocus = shallowRef(-1);
   let knobSeq = "0";
   let hotFrames = 0;
-  let homeUpdatedAt = 0;
-  let homeSignature = JSON.stringify(home.value);
+  let homeGen = device()?.get?.("homeGen") || "";
+  let homeUpdatedAt = Date.now();
 
   const openApp = (app: ScreenApp) => {
     if (launching.value) return;
@@ -105,7 +106,7 @@ export default function Shell() {
       if (page.value > 0) page.value = focus.value < 0 ? Math.min(page.value, appPageCount()) : listMode() ? 1 : 1 + Math.floor(focus.value / launcherPageSize(false, layout()));
       updateHome(readHomeLayout());
       hasUnderlay.value = readHomeUnderlay();
-      homeSignature = JSON.stringify(home.value);
+      homeGen = device()?.get?.("homeGen") || "";
       const nextLang = readLang();
       if (nextLang !== lang.value) {
         lang.value = nextLang;
@@ -118,6 +119,7 @@ export default function Shell() {
       knobRow.value = device()?.get?.("knobOn") === "1" ? focus.value : -1;
       return;
     }
+    device()?.set?.("shellFrameAfter", "0");
     device()?.set?.("pager", hostPager() ? "1" : "0");
     if (launching.value && !device()?.get?.("launch")) {
       launching.value = null;
@@ -215,14 +217,11 @@ export default function Shell() {
     knobRow.value = device()?.get?.("knobOn") === "1" ? focus.value : -1;
     if (page.value !== 0) return;
     const now = Date.now();
-    if (now - homeUpdatedAt >= 1000 || now < homeUpdatedAt) {
+    const nextHomeGen = device()?.get?.("homeGen") || "";
+    if (nextHomeGen !== homeGen || now >= homeRefreshAt() || now < homeUpdatedAt) {
       homeUpdatedAt = now;
-      const nextHome = readHomeLayout();
-      const nextSignature = JSON.stringify(nextHome);
-      if (nextSignature !== homeSignature) {
-        homeSignature = nextSignature;
-        updateHome(nextHome);
-      }
+      homeGen = nextHomeGen;
+      updateHome(readHomeLayout());
       const nextUnderlay = readHomeUnderlay();
       if (nextUnderlay !== hasUnderlay.value) hasUnderlay.value = nextUnderlay;
     }
@@ -238,6 +237,8 @@ export default function Shell() {
       }
       clock.value = next;
     }
+    const delay = nextShellDelay(Date.now(), !surfaceHome.value && home.value.clockVisible, showSeconds, surfaceHome.value ? Infinity : homeRefreshAt());
+    device()?.set?.("shellFrameAfter", String(delay));
   });
 
   return (

@@ -18,6 +18,25 @@ export function networkApplyError(raw: string, lang: Lang): string {
   return t(key, {}, lang);
 }
 
+/** What to do after a Wi-Fi connection fails. The host reports a network that
+ * did not join as "wifi" and requests Core refused as "wifi-*". */
+export function wifiJoinError(raw: string, secure: boolean, lang: Lang): string {
+  if (!raw) return "";
+  const key: MessageKey = raw === "wifi" ? (secure ? "wifiCheckPassword" : "wifiCheckSignal")
+    : raw === "wifi-password" ? "hotspotPasswordError"
+    : raw === "wifi-busy" ? "wifiBusy"
+    : raw === "wifi-pending" ? "wifiPending"
+    : raw === "wifi-ap-only" ? "wifiApOnly"
+    : raw === "wifi-core" ? "wifiService"
+    : "networkRetry";
+  return t(key, {}, lang);
+}
+
+/** Errors from a connection attempt, not from scanning. */
+export function isWifiJoinError(raw: string): boolean {
+  return raw === "ssid" || raw === "wifi" || raw.startsWith("wifi-");
+}
+
 export type Nic = { name: string; kind: "eth" | "wifi" | "ap" };
 export type Ap = {
   ssid: string;

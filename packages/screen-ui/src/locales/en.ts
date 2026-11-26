@@ -3,7 +3,7 @@ const en = {
   noTouch: "No touchscreen", webMouse: "Use the web mouse", disconnected: "Disconnected",
   left: "Left", right: "Right", speed: "Speed",
   power: "Power control", on: "On", off: "Off", reset: "Reset", back: "Back",
-  poweredOn: "Powered on", poweredOff: "Powered off", hostPower: "Host power", checkAtx: "Check the ATX cable",
+  poweredOn: "Powered on", poweredOff: "Powered off", hostPower: "Host power", checkPower: "Check the power control",
   powerLed: "Power LED", hddLed: "HDD LED", lit: "On", unlit: "Off", active: "Active", idle: "Idle",
   loginCode: "Code {code}",
   loginExpiryHint: "Scan within 5 min",

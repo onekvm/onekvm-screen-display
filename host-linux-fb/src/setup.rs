@@ -332,8 +332,9 @@ fn rsn_akm(data: &[u8]) -> (bool, bool, bool) {
         if offset + 4 > data.len() {
             break;
         }
+        // SAE, FT-SAE, Suite B and the SAE extended-key AKMs need WPA3.
         match data[offset + 3] {
-            8 | 9 | 11 => wpa3 = true,
+            8 | 9 | 11 | 24 | 25 => wpa3 = true,
             18 => owe = true,
             _ => wpa2 = true,
         }
@@ -486,81 +487,127 @@ const WPA_SERVICE: &str = "fi.w1.wpa_supplicant1";
 const WPA_ROOT: &str = "/fi/w1/wpa_supplicant1";
 const WPA_INTERFACE: &str = "fi.w1.wpa_supplicant1.Interface";
 
-pub fn wifi_connect_body(ssid: &str, password: &str) -> String {
-    json!({"ssid": ssid, "password": password}).to_string()
+/// Core's connect request. Core takes a passphrase of 8–63 bytes, or the
+/// derived key as 64 hex digits in `psk`; an empty password joins an open
+/// network.
+pub fn wifi_connect_body(ssid: &str, password: &str) -> Result<String, String> {
+    let credential = if password.is_empty() {
+        json!(password)
+    } else if password.len() == 64 && password.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Ok(json!({"ssid": ssid, "psk": password}).to_string());
+    } else if (8..=63).contains(&password.len()) && !password.chars().any(char::is_control) {
+        json!(password)
+    } else {
+        return Err("wifi-password".into());
+    };
+    Ok(json!({"ssid": ssid, "password": credential}).to_string())
 }
 
+/// Connect through Core, which saves the network once it joins and restores
+/// the previous networks when it does not. Core answers at once and finishes
+/// in the background, so poll its status until the attempt ends.
 pub fn wifi_connect(ssid: &str, password: &str) -> Result<(), String> {
-    if ssid.trim().is_empty() {
+    let ssid = ssid.trim();
+    if ssid.is_empty() {
         return Err("ssid".into());
     }
-    connect_wifi_dbus(ssid.trim(), password)
-}
-
-fn connect_wifi_dbus(ssid: &str, password: &str) -> Result<(), String> {
-    let conn = Connection::system().map_err(|err| err.to_string())?;
-    let iface = station_proxy(&conn)?;
-    let existing: Vec<OwnedObjectPath> = iface.get_property("Networks").unwrap_or_default();
-    for path in existing {
-        let _: () = iface
-            .call("RemoveNetwork", &(path,))
-            .map_err(|err| format!("connect: {err}"))?;
-    }
-    let mut settings = HashMap::new();
-    settings.insert("ssid", ZValue::from(ssid.as_bytes()));
-    settings.insert(
-        "key_mgmt",
-        ZValue::from(if password.is_empty() {
-            "NONE"
-        } else {
-            "WPA-PSK SAE"
-        }),
-    );
-    if !password.is_empty() {
-        settings.insert("psk", ZValue::from(password));
-        settings.insert("ieee80211w", ZValue::from(1i32));
-    }
-    let path: OwnedObjectPath = iface
-        .call("AddNetwork", &(settings,))
-        .map_err(|err| format!("connect: {err}"))?;
-    for _ in 0..3 {
-        iface
-            .call::<_, _, ()>("SelectNetwork", &(path.clone(),))
-            .map_err(|_| "wifi".to_string())?;
-        if wait_associated(&conn, &iface, ssid, 6) {
-            remember_wifi(ssid);
-            return Ok(());
+    let body = wifi_connect_body(ssid, password)?;
+    let first = wifi_command("connect", &body).map_err(|error| {
+        log::warn!("screen Wi-Fi connect refused: {error}");
+        connect_refusal(&error)
+    })?;
+    let started = Instant::now();
+    let mut status = first;
+    let mut misses = 0;
+    loop {
+        match join_result(&status, ssid) {
+            Join::Joined => {
+                remember_wifi(ssid);
+                return Ok(());
+            }
+            Join::Failed(error) => {
+                log::warn!("screen Wi-Fi connect failed: {error}");
+                return Err("wifi".into());
+            }
+            Join::Waiting => {}
         }
-    }
-    Err("wifi".into())
-}
-
-fn wait_associated(conn: &Connection, iface: &Proxy<'_>, ssid: &str, seconds: u64) -> bool {
-    for _ in 0..seconds {
+        if started.elapsed() >= CONNECT_LIMIT {
+            log::warn!("screen Wi-Fi connect: Core still connecting after {}s", CONNECT_LIMIT.as_secs());
+            return Err("wifi".into());
+        }
         thread::sleep(Duration::from_secs(1));
-        let Ok(state) = iface.get_property::<String>("State") else {
-            continue;
-        };
-        if state != "completed" {
-            continue;
-        }
-        let Ok(path) = iface.get_property::<OwnedObjectPath>("CurrentBSS") else {
-            continue;
-        };
-        if path.as_str() == "/" {
-            continue;
-        }
-        let Ok(bss) = Proxy::new(conn, WPA_SERVICE, &path, "fi.w1.wpa_supplicant1.BSS") else {
-            continue;
-        };
-        let Ok(bytes) = bss.get_property::<Vec<u8>>("SSID") else {
-            continue;
-        };
-        if String::from_utf8(bytes).ok().as_deref() == Some(ssid) {
-            return true;
+        match wifi_command("status", "{}") {
+            Ok(next) => {
+                status = next;
+                misses = 0;
+            }
+            Err(error) => {
+                misses += 1;
+                if misses >= 5 {
+                    log::warn!("screen Wi-Fi status: {error}");
+                    return Err("wifi-core".into());
+                }
+            }
         }
     }
-    false
+}
+
+/// Core bounds its own attempt (about 35 s to join, plus runtime updates);
+/// this only stops the job if Core never reports an end.
+const CONNECT_LIMIT: Duration = Duration::from_secs(180);
+
+#[derive(Debug, PartialEq)]
+enum Join {
+    Waiting,
+    Joined,
+    Failed(String),
+}
+
+/// A finished attempt joined only if Core is connected to this network. The
+/// station watcher may already report a restored previous network instead.
+fn join_result(status: &Value, ssid: &str) -> Join {
+    if status["connecting"].as_bool() == Some(true) {
+        return Join::Waiting;
+    }
+    if status["connected"].as_bool() == Some(true) && status["station_ssid"].as_str() == Some(ssid) {
+        return Join::Joined;
+    }
+    Join::Failed(status["error"].as_str().filter(|error| !error.is_empty()).unwrap_or("not connected").to_string())
+}
+
+/// Setup error code for a connect request Core refused before starting.
+fn connect_refusal(message: &str) -> String {
+    let lower = message.to_ascii_lowercase();
+    let code = if lower.contains("already in progress") {
+        "wifi-busy"
+    } else if lower.contains("pending network") {
+        "wifi-pending"
+    } else if lower.contains("station mode") {
+        "wifi-ap-only"
+    } else if lower.contains("password") || lower.contains("psk") {
+        "wifi-password"
+    } else if lower.contains("ssid") {
+        "ssid"
+    } else {
+        "wifi-core"
+    };
+    code.into()
+}
+
+/// Station requests to Core's Management.Wifi; hotspot requests stay in
+/// `hotspot_command`. Errors carry Core's message without the D-Bus name.
+fn wifi_command(action: &str, payload: &str) -> Result<Value, String> {
+    if !matches!(action, "connect" | "status") {
+        return Err("invalid Wi-Fi action".into());
+    }
+    let raw: String = crate::bus::with_core(
+        "org.onekvm.Core1.Management", "/org/onekvm/Core1/Management",
+        |proxy| proxy.call("Wifi", &(action, payload)).map_err(Into::into),
+    ).map_err(|error| match error.downcast_ref::<zbus::Error>() {
+        Some(zbus::Error::MethodError(_, Some(detail), _)) => detail.clone(),
+        _ => error.to_string(),
+    })?;
+    serde_json::from_str(&raw).map_err(|error| error.to_string())
 }
 
 pub fn nfs_root_cmdline(cmdline: &str) -> bool {
@@ -1240,6 +1287,10 @@ mod tests {
         assert_eq!(wifi_security(true, &wpa2), "wpa2");
         assert_eq!(wifi_security(true, &wpa3), "wpa3");
         assert_eq!(wifi_security(true, &both), "wpa2-wpa3");
+        let sae_ext = rsn_ie(&[0x00, 0x0f, 0xac, 0x18, 0x00, 0x0f, 0xac, 0x19]);
+        assert_eq!(wifi_security(true, &sae_ext), "wpa3", "SAE extended-key only");
+        let psk_and_ext = rsn_ie(&[0x00, 0x0f, 0xac, 0x02, 0x00, 0x0f, 0xac, 0x18]);
+        assert_eq!(wifi_security(true, &psk_and_ext), "wpa2-wpa3");
         assert_eq!(wifi_security(false, &[]), "open");
         assert_eq!(wifi_security(true, &[]), "wep");
         assert_eq!(wifi_generation(&[45, 1, 0, 191, 1, 0, 255, 1, 35]), 6);
@@ -1302,12 +1353,47 @@ mod tests {
     }
 
     #[test]
-    fn wifi_connect_body_is_only_ssid_and_password() {
-        let body: Value = serde_json::from_str(&wifi_connect_body("hidden net", "secret")).unwrap();
-        let obj = body.as_object().unwrap();
-        assert_eq!(obj.len(), 2);
-        assert_eq!(obj.get("ssid").and_then(|v| v.as_str()), Some("hidden net"));
-        assert_eq!(obj.get("password").and_then(|v| v.as_str()), Some("secret"));
+    fn wifi_connect_body_follows_core_credential_rules() {
+        let body = |password: &str| -> Value { serde_json::from_str(&wifi_connect_body("Office", password).unwrap()).unwrap() };
+        assert_eq!(body(""), json!({"ssid": "Office", "password": ""}));
+        assert_eq!(body("placeholder"), json!({"ssid": "Office", "password": "placeholder"}));
+        assert_eq!(body(&"p".repeat(63))["password"].as_str().map(str::len), Some(63));
+        let key = "0123456789abcdefABCDEF0123456789abcdef0123456789abcdef0123456789";
+        assert_eq!(body(key), json!({"ssid": "Office", "psk": key}));
+        for bad in ["short", &"p".repeat(64), &"p".repeat(65), "tab\tplaceholder"] {
+            assert_eq!(wifi_connect_body("Office", bad), Err("wifi-password".to_string()));
+        }
+    }
+
+    #[test]
+    fn wifi_join_waits_for_core_and_checks_the_network() {
+        let status = |connecting: bool, connected: bool, ssid: &str, error: &str| {
+            json!({"connecting": connecting, "connected": connected, "station_ssid": ssid, "error": error})
+        };
+        assert_eq!(join_result(&status(true, false, "Office", ""), "Office"), Join::Waiting);
+        assert_eq!(join_result(&status(false, true, "Office", ""), "Office"), Join::Joined);
+        let timeout = "Wi-Fi association timed out; previous saved networks restored";
+        assert_eq!(join_result(&status(false, false, "Office", timeout), "Office"), Join::Failed(timeout.into()));
+        // The previous network came back before the poll: still a failure.
+        assert_eq!(join_result(&status(false, true, "Lobby", ""), "Office"), Join::Failed("not connected".into()));
+        assert_eq!(join_result(&json!({}), "Office"), Join::Failed("not connected".into()));
+    }
+
+    #[test]
+    fn wifi_connect_refusals_map_to_setup_errors() {
+        for (message, code) in [
+            ("Wi-Fi connection already in progress", "wifi-busy"),
+            ("Confirm the pending network configuration first", "wifi-pending"),
+            ("Enable station mode before connecting", "wifi-ap-only"),
+            ("Wi-Fi password must be 8–63 UTF-8 bytes without control characters; use psk for a derived WPA key", "wifi-password"),
+            ("Wi-Fi PSK must be 64 hexadecimal digits", "wifi-password"),
+            ("SSID must be 1–32 bytes without control characters", "ssid"),
+            ("Requested Wi-Fi station interface is unavailable", "wifi-core"),
+            ("Wifi is not configured", "wifi-core"),
+            ("org.freedesktop.DBus.Error.ServiceUnknown", "wifi-core"),
+        ] {
+            assert_eq!(connect_refusal(message), code, "{message}");
+        }
     }
 
     #[test]
@@ -1455,9 +1541,9 @@ mod tests {
 
     #[test]
     fn account_setup_uses_the_selected_username() {
-        let body = auth_setup_body("  operator-105  ", "long-enough", "zh", "UTC").unwrap();
+        let body = auth_setup_body("  operator-2  ", "long-enough", "zh", "UTC").unwrap();
         let value: Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(value["username"], "operator-105");
+        assert_eq!(value["username"], "operator-2");
         assert_eq!(value["password"], "long-enough");
         assert_eq!(value["system"]["language"], "zh");
         assert_eq!(value["system"]["timezone"], "UTC");

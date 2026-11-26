@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import io
+import os
 import re
 import sys
 from pathlib import Path
@@ -16,8 +17,10 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit("need cairosvg") from exc
 
 ROOT = Path(__file__).resolve().parents[1]
+# Same @lucide/vue build the Web UI ships; override with LUCIDE_VUE_JS.
 LUCIDE_JS = Path(
-    "/home/samlm/projects/onekvm/onekvm-ui/node_modules/@lucide/vue/dist/cjs/lucide-vue.js"
+    os.environ.get("LUCIDE_VUE_JS")
+    or ROOT.parent / "onekvm-ui" / "node_modules/@lucide/vue/dist/cjs/lucide-vue.js"
 )
 OUT = ROOT / "src"
 
@@ -190,7 +193,7 @@ def write_internet_globe() -> None:
 
 def main() -> int:
     if not LUCIDE_JS.is_file():
-        print(f"missing {LUCIDE_JS}", file=sys.stderr)
+        print(f"missing {LUCIDE_JS}; set LUCIDE_VUE_JS to @lucide/vue/dist/cjs/lucide-vue.js", file=sys.stderr)
         return 1
     source = LUCIDE_JS.read_text()
     OUT.mkdir(parents=True, exist_ok=True)

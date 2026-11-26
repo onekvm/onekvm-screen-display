@@ -5,7 +5,7 @@ const zh: Messages = {
   noTouch: "此设备无触摸屏", webMouse: "请在网页端控制鼠标", disconnected: "未连接",
   left: "左键", right: "右键", speed: "速度",
   power: "电源控制", on: "开机", off: "关机", reset: "重启", back: "返回",
-  poweredOn: "已开机", poweredOff: "已关机", hostPower: "受控主机电源", checkAtx: "请检查 ATX 接口",
+  poweredOn: "已开机", poweredOff: "已关机", hostPower: "受控主机电源", checkPower: "请检查电源控制",
   powerLed: "电源灯", hddLed: "HDD 灯", lit: "亮", unlit: "灭", active: "活动", idle: "空闲",
   loginCode: "授权码 {code}",
   loginExpiryHint: "5 分钟内扫码，过期重连",

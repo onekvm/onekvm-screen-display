@@ -1,7 +1,11 @@
-import { shallowRef } from "vue";
+import { computed, shallowRef } from "vue";
 import { Image, Text, View } from "@pocketjs/framework/vue-vapor/components";
 import { LIST_ROW_H } from "./listMetrics";
 import { COLOR, FONT } from "./ui";
+import { screenSize } from "./device";
+import { LIST_INSET, rowTexts } from "./textFit";
+
+export { LIST_INSET, rowTexts };
 
 /**
  * Paint reads these refs inside the class string. A `selected` boolean is
@@ -29,7 +33,15 @@ function RowLabel(props: {
   tags?: string[];
   rowIndex?: number;
   selected?: boolean;
+  width?: number;
 }) {
+  const texts = computed(() => rowTexts({
+    width: props.width ?? screenSize().w - LIST_INSET,
+    icon: !!props.icon,
+    title: props.title,
+    value: props.value,
+    tags: props.tags,
+  }));
   return (
     <>
       <View class="flex flex-row items-center gap-3">
@@ -48,11 +60,11 @@ function RowLabel(props: {
             class="text-base leading-6 text-white transition-colors duration-96 ease-out"
             style={{ fontSlot: FONT.base, textColor: COLOR.white }}
           >
-            {props.title}
+            {texts.value.title}
           </Text>
-          {props.tags && props.tags.length > 0 ? (
+          {texts.value.tags.length > 0 ? (
             <View class="flex flex-row items-center gap-1">
-              {props.tags.map((tag) => (
+              {texts.value.tags.map((tag) => (
                 <View
                   class="flex px-1 rounded items-center justify-center transition-colors duration-96 ease-out"
                   style={{
@@ -77,7 +89,7 @@ function RowLabel(props: {
             textColor: marked(props.rowIndex, props.selected) ? COLOR.white : COLOR.zinc400,
           }}
         >
-          {props.value}
+          {texts.value.value}
         </Text>
       ) : null}
     </>
@@ -98,6 +110,8 @@ export function ListRow(props: {
   /** Index of this row in the current list. Compared with `knobRow` while painting. */
   rowIndex?: number;
   selected?: boolean;
+  /** Row width; defaults to the screen minus `LIST_INSET`. */
+  width?: number;
   onPress?: () => void;
 }) {
   // Read `knobRow.value` in the class expression itself. A helper that only the
@@ -123,6 +137,7 @@ export function ListRow(props: {
         tags={props.tags}
         rowIndex={props.rowIndex}
         selected={props.selected}
+        width={props.width}
       />
     </View>
   );

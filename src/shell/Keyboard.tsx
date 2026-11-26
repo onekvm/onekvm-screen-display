@@ -2,11 +2,19 @@ import { shallowRef } from "vue";
 import { Image, Text, View } from "@pocketjs/framework/vue-vapor/components";
 import { onFrame } from "@pocketjs/framework/vue-vapor/lifecycle";
 import { createGesture } from "@pocketjs/framework/vue-vapor/gesture";
-import { hitCap, keyboardMark, layoutKeys, maskSecret, releaseKey, slidePick, type KeyKind } from "./keypad";
+import { caretX, HEADER_LABEL_H, HEADER_VALUE_H, hitCap, keyboardMark, keyHeader, layoutKeys, maskSecret, KEY_RADIUS, pickAt, pickBand, pickChips, releaseKey, tailFit, type KeyKind } from "./keypad";
 import { device, screenSize } from "./device";
 import { COLOR, FONT } from "./ui";
 
 const KEY_BG = 0xff2a2a2a;
+const LABEL_H = HEADER_LABEL_H;
+const VALUE_H = HEADER_VALUE_H;
+
+function measureBase(text: string): number {
+  const ui = (globalThis as { ui?: { measureText?: (text: string, slot: number) => number } }).ui;
+  const width = ui?.measureText?.(text, FONT.base);
+  return typeof width === "number" && width > 0 ? width : Array.from(text).length * 10;
+}
 
 export default function Keyboard(props: {
   open: boolean;
@@ -49,13 +57,16 @@ export default function Keyboard(props: {
   let peekUntil = 0;
   let seenLen = 0;
 
-  const eye = () => {
-    const scr = screenSize();
-    const lay = board();
-    const w = compact() ? 40 : 48;
-    const h = Math.max(16, lay.previewH - (compact() ? 18 : 8));
-    return { x: scr.w - 6 - w, y: lay.top + (compact() ? 18 : 4), w, h };
+  /** Field name, typed line and show button, clear of rounded panel corners. */
+  const header = () => keyHeader(board(), screenSize(), !!props.label, props.secret);
+  const eye = () => header().button;
+  const band = () => {
+    const cap = board().caps[hot.value];
+    return cap ? pickBand(pickChips(cap, board(), screenSize()), board(), screenSize()) : { x: 0, y: 0, w: 0, h: 0 };
   };
+  const head = () => header();
+  const headX = () => header().x;
+  const headRight = () => header().right;
   const eyeOn = () => props.secret && knob() && props.rotaryFocus && props.focus >= board().caps.length;
 
   onFrame(() => {
@@ -81,7 +92,8 @@ export default function Keyboard(props: {
       seenLen = chars.length;
     }
     void peekGen.value;
-    return maskSecret(value, !hide, Date.now(), peekUntil);
+    const text = maskSecret(value, !hide, Date.now(), peekUntil);
+    return tailFit(text, screenSize().w - headX() - headRight(), measureBase);
   };
 
   const clearHold = () => {
@@ -129,7 +141,7 @@ export default function Keyboard(props: {
       const cap = caps[index];
       if (cap && cap.chars.length > 1) {
         picking.value = true;
-        pick.value = 0;
+        pick.value = pickAt(cap, board(), screenSize(), c.x);
       }
     },
     onMove(c) {
@@ -137,15 +149,15 @@ export default function Keyboard(props: {
       const caps = board().caps;
       const cap = caps[hot.value];
       if (!cap || cap.chars.length <= 1) return;
-      const step = Math.max(18, Math.floor(cap.w / cap.chars.length));
-      pick.value = slidePick(c.x - c.startX, cap.chars.length, step);
+      pick.value = pickAt(cap, board(), screenSize(), c.x);
     },
     onUp(c) {
       if (!props.open) {
         clearHold();
         return;
       }
-      if (props.secret) {
+      // A held group types the chip under the finger, even over the show button.
+      if (props.secret && !picking.value) {
         const box = eye();
         if (c.x >= box.x && c.x < box.x + box.w && c.y >= box.y && c.y < box.y + box.h) {
           clearHold();
@@ -156,7 +168,8 @@ export default function Keyboard(props: {
       const caps = board().caps;
       const index = hot.value;
       const wasPicking = picking.value;
-      const which = pick.value;
+      const cap = caps[index];
+      const which = wasPicking && cap ? pickAt(cap, board(), screenSize(), c.x) : pick.value;
       clearHold();
       props.onFocus(index);
       const token = releaseKey(caps, index, c.x, c.y, wasPicking, which);
@@ -190,7 +203,7 @@ export default function Keyboard(props: {
                 width: cap.w,
                 height: cap.h,
                 bgColor: KEY_BG,
-                radius: 10,
+                radius: KEY_RADIUS,
                 hitPass: 1,
               }}
             />
@@ -205,7 +218,7 @@ export default function Keyboard(props: {
             width: board().caps[mark()].w,
             height: board().caps[mark()].h,
             bgColor: COLOR.primary,
-            radius: 10,
+            radius: KEY_RADIUS,
             hitPass: 1,
           }}
         />
@@ -219,7 +232,7 @@ export default function Keyboard(props: {
                 insetT: cap.ly,
                 width: cap.w,
                 height: cap.h,
-                radius: 10,
+                radius: KEY_RADIUS,
               }}
             >
               {cap.icon === "backspace" ? (
@@ -254,10 +267,10 @@ export default function Keyboard(props: {
             <Text
               class="absolute text-xs"
               style={{
-                insetL: 8,
-                insetT: board().previewH >= 36 ? 2 : 4,
-                insetR: props.secret ? eye().w + 10 : 8,
-                height: 14,
+                insetL: headX(),
+                insetT: head().label,
+                insetR: headRight(),
+                height: LABEL_H,
                 fontSlot: FONT.xs,
                 textColor: COLOR.zinc400,
               }}
@@ -268,16 +281,27 @@ export default function Keyboard(props: {
           <Text
             class="absolute text-base"
             style={{
-              insetL: 8,
-              insetT: props.label && board().previewH >= 36 ? 16 : Math.max(0, Math.round((board().previewH - 20) / 2)),
-              insetR: props.secret ? eye().w + 10 : 8,
-              height: 20,
+              insetL: headX(),
+              insetT: head().value,
+              insetR: headRight(),
+              height: VALUE_H,
               fontSlot: FONT.base,
               textColor: COLOR.zinc100,
             }}
           >
             {shown()}
           </Text>
+          <View
+            class="absolute"
+            style={{
+              insetL: caretX(header(), screenSize(), measureBase(shown())),
+              insetT: head().value + 1,
+              width: 2,
+              height: VALUE_H - 2,
+              bgColor: COLOR.primary,
+              hitPass: 1,
+            }}
+          />
           {props.secret ? (
             <View
               class="absolute flex items-center justify-center rounded"
@@ -307,7 +331,7 @@ export default function Keyboard(props: {
             width: board().caps[hot.value].w,
             height: board().caps[hot.value].h,
             bgColor: COLOR.primary,
-            radius: 10,
+            radius: KEY_RADIUS,
             hitPass: 1,
           }}
         >
@@ -319,25 +343,31 @@ export default function Keyboard(props: {
           </Text>
         </View>
       ) : null}
+      {props.open && `${hot.value}:${picking.value ? 1 : 0}` && picking.value && hot.value >= 0 && (board().caps[hot.value]?.chars.length ?? 0) > 1 ? (
+        <View
+          class="absolute"
+          style={{
+            insetL: band().x,
+            insetT: band().y,
+            width: band().w,
+            height: band().h,
+            radius: 12,
+            bgColor: COLOR.zinc950,
+            hitPass: 1,
+          }}
+        />
+      ) : null}
       {props.open && `${hot.value}:${picking.value ? 1 : 0}:${pick.value}` && picking.value && hot.value >= 0 && (board().caps[hot.value]?.chars.length ?? 0) > 1
         ? board().caps[hot.value].chars.map((ch, index) => {
-            const cap = board().caps[hot.value];
-            const chip = 36;
-            const gap = 4;
-            const count = cap.chars.length;
-            const width = count * chip + (count - 1) * gap;
-            let x = Math.round(cap.x + cap.w / 2 - width / 2);
-            const scrW = screenSize().w;
-            if (x < 2) x = 2;
-            if (x + width > scrW - 2) x = Math.max(2, scrW - 2 - width);
+            const chip = pickChips(board().caps[hot.value], board(), screenSize())[index];
             return (
               <View
                 class="absolute flex items-center justify-center"
                 style={{
-                  insetL: x + index * (chip + gap),
-                  insetT: Math.max(0, cap.ly - chip - 4),
-                  width: chip,
-                  height: chip,
+                  insetL: chip.x,
+                  insetT: chip.y,
+                  width: chip.size,
+                  height: chip.size,
                   radius: 8,
                   bgColor: index === pick.value ? COLOR.primary : KEY_BG,
                   hitPass: 1,

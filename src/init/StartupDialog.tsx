@@ -1,7 +1,7 @@
 import { shallowRef } from "vue";
 import { device, setHot } from "../shell/device";
 import { FeedbackModal } from "../shell/FeedbackModal";
-import { setupFailureCode, startupMessage } from "./startup-copy";
+import { setupFailureCode, startupDialogCopy } from "./startup-copy";
 
 type Status = { state: string; code: string };
 /** Consume the native cache; getters perform no system calls or log collection. */
@@ -70,11 +70,9 @@ export function StartupDialog(props: {
   rotary: boolean; focus: number; onRetry: () => void; onClose: () => void;
 }) {
   const waiting = () => props.state === "checking" || props.state === "starting";
-  const c = () => props.lang === "zh" ? { title: "设备尚未就绪", starting: "正在启动", checking: "正在检查启动状态…", retry: "重新检查", back: "返回" }
-    : props.lang === "zh_tw" ? { title: "裝置尚未就緒", starting: "正在啟動", checking: "正在檢查啟動狀態…", retry: "重新檢查", back: "返回" }
-    : { title: "Device is not ready", starting: "Starting device", checking: "Checking startup status…", retry: "Check again", back: "Back" };
+  const c = () => startupDialogCopy(props.lang, props.state, props.code);
   return <FeedbackModal width={props.width} height={props.height}
-    title={waiting() ? c().starting : c().title} message={props.state === "checking" ? c().checking : startupMessage(props.code, props.lang)}
+    title={c().title} message={c().message}
     busy={waiting()} warning={!waiting()} rotary={props.rotary} focus={props.focus}
     primary={waiting() ? undefined : { label: c().retry, onPress: props.onRetry }}
     secondary={waiting() ? undefined : { label: c().back, onPress: props.onClose }}

@@ -4,7 +4,7 @@ import { DRAWER_EXIT_MS } from "../shell/motion";
 
 const { mount } = await import("@pocketjs/framework/vue-vapor");
 const { rootMirror } = await import("@pocketjs/framework/renderer");
-const { layoutKeys } = await import("../shell/keypad.ts");
+const { layoutKeys, pickChips, revealBox } = await import("../shell/keypad.ts");
 const { COLOR } = await import("../shell/ui.ts");
 const { default: Init } = await import("./Init.tsx");
 const screen = {
@@ -34,7 +34,7 @@ const keys = new Map<string, string>([
   ["language", "zh"],
   ["timezone", "Asia/Shanghai"],
   ["blankSeconds", "0"],
-  ["ip", "203.0.113.105"],
+  ["ip", "192.168.10.20"],
   ["iface", "eth0"],
   ["wifi", "0"],
   ["nfs", "0"],
@@ -224,13 +224,15 @@ function rowLabel(index: number): string {
 }
 
 // Local startup faults appear before account entry and never export logs.
+// Before the language step they are in English, although the device still
+// stores "zh" from an earlier setup.
 const startupReasons = {
-  "storage-unmounted": "数据分区未挂载", "storage-read-only": "数据分区为只读",
-  "storage-full": "数据分区空间不足", "storage-io": "存储读写失败",
-  "storage-permission": "配置目录无写入权限", "storage-write": "无法写入配置存储",
-  "boot-slot": "启动槽位信息异常", "system-files": "系统文件缺失或无法读取",
-  "config-invalid": "系统配置文件无法解析", "persistence-failed": "持久化准备失败",
-  "core-failed": "核心服务未能启动", "core-unreachable": "连不上本机核心服务",
+  "storage-unmounted": "Data partition is not mounted.", "storage-read-only": "Data partition is read-only.",
+  "storage-full": "Data partition is full.", "storage-io": "Storage read/write failed.",
+  "storage-permission": "Configuration is not writable.", "storage-write": "Cannot write configuration.",
+  "boot-slot": "Boot slot information is invalid.", "system-files": "System files are missing or unreadable.",
+  "config-invalid": "Configuration file is invalid.", "persistence-failed": "Persistent storage setup failed.",
+  "core-failed": "Core service failed to start.", "core-unreachable": "Cannot reach the local Core service.",
 };
 const allText = () => texts(rootMirror as unknown as Mirror).join("\n");
 async function startupFrame(state: string, code: string) {
@@ -246,41 +248,41 @@ function startupButton(label: string, node = rootMirror as unknown as Mirror): M
 const startupSetOffset = sets.length;
 for (const code of ["persistence-starting", "core-starting"]) {
   await startupFrame("starting", code);
-  assert.ok(allText().includes("正在启动"));
-  assert.ok(allText().includes("完成后将自动继续"));
-  assert.ok(!startupButton("重新检查") && !startupButton("返回"));
+  assert.ok(allText().includes("Starting device"));
+  assert.ok(allText().includes("Please wait."));
+  assert.ok(!startupButton("Check again") && !startupButton("Back"));
   keys.set("setupError", "startup:" + code);
   const checks = sets.filter(({ key }) => key === "startupCheck").length;
   now += 2100; frame(); await nextTick(); frame(); await nextTick();
   assert.equal(sets.filter(({ key }) => key === "startupCheck").length, checks + 1);
   now += 15000; frame(); await nextTick(); frame(); await nextTick();
-  assert.ok(!allText().includes("启动检查未能及时完成"));
+  assert.ok(!allText().includes("Startup check did not finish in time."));
   await startupFrame("ready", "");
-  assert.ok(!allText().includes("完成后将自动继续"));
+  assert.ok(!allText().includes("Please wait."));
   keys.set("setupError", "");
 }
 sets.splice(startupSetOffset);
 for (const [code, reason] of Object.entries(startupReasons)) {
   await startupFrame("error", code);
   assert.ok(allText().includes(reason), `${code} reason is hidden`);
-  startupButton("返回")!.onPress!(); await nextTick();
+  startupButton("Back")!.onPress!(); await nextTick();
   await startupFrame("error", code);
-  assert.ok(!allText().includes("设备尚未就绪"), "dismissed fault reopened without a change");
+  assert.ok(!allText().includes("Device is not ready"), "dismissed fault reopened without a change");
   await startupFrame("ready", "");
 }
 await startupFrame("error", "storage-read-only");
-startupButton("重新检查")!.onPress!(); await nextTick();
+startupButton("Check again")!.onPress!(); await nextTick();
 assert.equal(sets.filter(({ key }) => key === "startupCheck").length, 1);
 // A fast native check can finish between frames and return the same fault.
 await startupFrame("error", "storage-read-only");
-assert.ok(allText().includes("数据分区为只读"));
-startupButton("重新检查")!.onPress!(); await nextTick();
+assert.ok(allText().includes("Data partition is read-only."));
+startupButton("Check again")!.onPress!(); await nextTick();
 await startupFrame("checking", "");
-assert.ok(allText().includes("正在检查启动状态"));
+assert.ok(allText().includes("Checking startup status"));
 now += 11000; frame(); await nextTick(); frame(); await nextTick();
-assert.ok(allText().includes("启动检查未能及时完成"));
+assert.ok(allText().includes("Startup check did not finish in time."));
 await startupFrame("ready", "");
-assert.ok(!allText().includes("设备尚未就绪"));
+assert.ok(!allText().includes("Device is not ready"));
 assert.equal(sets.filter(({ key }) => key === "diagnosticsStart" || key === "authSetup").length, 0);
 now = 1000;
 frame();
@@ -298,11 +300,11 @@ const logoTarget = logo ?? (function find(node: Mirror): Mirror | undefined {
 })(rootMirror as unknown as Mirror);
 assert.ok(logoTarget?.onPress, "welcome logo is not an input target");
 for (let i = 0; i < 4; i++) { logoTarget.onPress(); await nextTick(); }
-assert.ok(!texts(rootMirror as unknown as Mirror).includes("导出诊断"));
+assert.ok(!texts(rootMirror as unknown as Mirror).includes("Export diagnostics"));
 assert.equal(diagnosticsRequests(), 0, "logo taps started collection before confirmation");
 logoTarget.onPress();
 await nextTick();
-assert.ok(texts(rootMirror as unknown as Mirror).includes("导出诊断"));
+assert.ok(texts(rootMirror as unknown as Mirror).includes("Export diagnostics"));
 assert.equal(diagnosticsRequests(), 0, "opening the dialog started collection");
 function pressText(label: string) {
   const find = (node: Mirror): Mirror | undefined => node.onPress && texts(node).length === 1 && texts(node)[0] === label
@@ -311,45 +313,45 @@ function pressText(label: string) {
   assert.ok(target?.onPress, `missing action ${label}`);
   target.onPress();
 }
-pressText("取消");
+pressText("Cancel");
 await nextTick();
-assert.ok(!texts(rootMirror as unknown as Mirror).includes("导出诊断"));
+assert.ok(!texts(rootMirror as unknown as Mirror).includes("Export diagnostics"));
 assert.equal(diagnosticsRequests(), 0, "canceling the dialog started collection");
 frame(); await nextTick();
-assert.ok(texts(rootMirror as unknown as Mirror).includes("USB ADB 调试"), "ADB confirmation must follow diagnostics");
+assert.ok(texts(rootMirror as unknown as Mirror).includes("USB ADB debugging"), "ADB confirmation must follow diagnostics");
 assert.equal(sets.filter(({ key }) => key === "adbDebugSet").length, 0, "opening ADB confirmation enabled debugging");
-pressText("取消"); await nextTick();
-assert.ok(!texts(rootMirror as unknown as Mirror).includes("USB ADB 调试"));
+pressText("Cancel"); await nextTick();
+assert.ok(!texts(rootMirror as unknown as Mirror).includes("USB ADB debugging"));
 for (let i = 0; i < 5; i++) { logoTarget.onPress(); await nextTick(); }
-assert.ok(texts(rootMirror as unknown as Mirror).includes("导出诊断"));
+assert.ok(texts(rootMirror as unknown as Mirror).includes("Export diagnostics"));
 assert.equal(diagnosticsRequests(), 0);
-pressText("导出");
+pressText("Export");
 await nextTick();
 assert.equal(diagnosticsRequests(), 1, "Export must send exactly one explicit request");
 keys.set("diagnosticsStatus", JSON.stringify({ state: "done", error: "" }));
 now += 600;
 frame();
 await nextTick();
-assert.ok(texts(rootMirror as unknown as Mirror).includes("导出完成"));
-pressText("确定");
+assert.ok(texts(rootMirror as unknown as Mirror).includes("Export complete"));
+pressText("OK");
 await nextTick();
-assert.ok(!texts(rootMirror as unknown as Mirror).includes("导出完成"));
+assert.ok(!texts(rootMirror as unknown as Mirror).includes("Export complete"));
 frame(); await nextTick();
-assert.ok(texts(rootMirror as unknown as Mirror).includes("USB ADB 调试"));
-pressText("开启"); await nextTick();
+assert.ok(texts(rootMirror as unknown as Mirror).includes("USB ADB debugging"));
+pressText("Enable"); await nextTick();
 assert.deepEqual(sets.filter(({ key }) => key === "adbDebugSet").map(({ value }) => value), ["1"]);
 keys.set("adbDebugStatus", JSON.stringify({ state: "busy" }));
 frame(); await nextTick();
-assert.ok(texts(rootMirror as unknown as Mirror).includes("正在开启 USB ADB…"));
+assert.ok(texts(rootMirror as unknown as Mirror).includes("Enabling USB ADB…"));
 keys.set("adbDebugStatus", JSON.stringify({ state: "on" }));
 frame(); await nextTick();
-assert.ok(texts(rootMirror as unknown as Mirror).includes("USB ADB 已开启"));
-pressText("关闭 ADB"); await nextTick();
+assert.ok(texts(rootMirror as unknown as Mirror).includes("USB ADB is enabled"));
+pressText("Disable ADB"); await nextTick();
 assert.deepEqual(sets.filter(({ key }) => key === "adbDebugSet").map(({ value }) => value), ["1", "0"]);
 keys.set("adbDebugStatus", JSON.stringify({ state: "off" }));
 frame(); await nextTick();
-assert.ok(texts(rootMirror as unknown as Mirror).includes("USB ADB 已关闭"));
-pressText("确定"); await nextTick();
+assert.ok(texts(rootMirror as unknown as Mirror).includes("USB ADB is disabled"));
+pressText("OK"); await nextTick();
 
 await act({ click: true });
 assertNoneSelected("knob off");
@@ -557,6 +559,42 @@ assert.equal(selectedKey(), 1, "encoder did not continue from the touched key");
 await act({ click: true });
 const username = `admina${usernameKeys[1].token}`;
 assert.ok(texts(rootMirror as unknown as Mirror).includes(username), "encoder typed a key from its old position");
+// Holding a group selects the chip under the finger, starting with the one
+// under the press point, so a right-column group reaches every letter.
+function selectedChip(node = rootMirror as unknown as Mirror): number {
+  const style = node.domAttrs?.style as Record<string, number> | undefined;
+  if (style?.width === 36 && style.height === 36 && style.radius === 8 && style.bgColor === COLOR.primary) return style.insetL;
+  for (const child of node.children) {
+    const x = selectedChip(child);
+    if (x >= 0) return x;
+  }
+  return -1;
+}
+let holdAnchor = 0;
+async function holdGroup(token: string, edge: "left" | "middle" | "right", typed: string) {
+  const index = usernameKeys.findIndex((cap) => cap.token === token);
+  const cap = usernameKeys[index];
+  const chips = pickChips(cap, layoutKeys("text", 0, screen), screen);
+  const x = edge === "left" ? cap.x : edge === "middle" ? cap.x + Math.floor(cap.w / 2) : cap.x + cap.w - 1;
+  const y = cap.y + Math.floor(cap.h / 2);
+  for (let i = 0; i < 40; i++) { frame([__packTouch(0, x, y)]); await nextTick(); }
+  // The chip under the press point, or the nearest one.
+  const gap = (chip: { x: number; size: number }) => Math.max(chip.x - x, x - (chip.x + chip.size - 1), 0);
+  const under = chips.reduce((best, chip, n) => (gap(chip) < gap(chips[best]) ? n : best), 0);
+  assert.equal(selectedChip(), chips[under].x, `${token} ${edge} press did not select the chip under the finger`);
+  const target = chips[cap.chars.indexOf(typed)];
+  for (let i = 0; i < 3; i++) { frame([__packTouch(0, target.x + 18, y)]); await nextTick(); }
+  assert.equal(selectedChip(), target.x, `${token} chip ${typed} not selected`);
+  await contact();
+  holdAnchor = index;
+}
+await holdGroup(".", "middle", "@");
+await holdGroup("p", "right", "p");
+await holdGroup("p", "left", "s");
+assert.ok(texts(rootMirror as unknown as Mirror).includes(`${username}@ps`), "held groups typed the wrong letters");
+await act({ hold: 3 });
+assert.ok(texts(rootMirror as unknown as Mirror).includes(username));
+await act({ knob: 1 - holdAnchor });
 await act({ knob: usernameKeys.findIndex((cap) => cap.token === "OK") - 1 });
 await act({ click: true });
 assert.ok(rowLabel(0).includes(username), "account form did not keep the edited username");
@@ -567,10 +605,8 @@ await rightBack(true);
 assertSelected(1, "right swipe closes password keyboard without leaving the page");
 await act({ click: true });
 const passwordBoard = layoutKeys("text", 0, screen);
-const compact = screen.h < 200;
-const eyeWidth = compact ? 40 : 48;
-const eyeHeight = Math.max(16, passwordBoard.previewH - (compact ? 18 : 8));
-await contact(Math.round(screen.w - 6 - eyeWidth / 2), Math.round(passwordBoard.top + (compact ? 18 : 4) + eyeHeight / 2));
+const eye = revealBox(passwordBoard, screen);
+await contact(Math.round(eye.x + eye.w / 2), Math.round(eye.y + eye.h / 2));
 await contact();
 assert.equal(selectedKey(), -1, "password visibility left a stale key highlighted");
 await act({ knob: -1 });

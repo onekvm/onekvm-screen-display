@@ -36,7 +36,6 @@ assets:
 	$(SVG_PY) scripts/gen_logo_png.py
 	$(PYTHON) scripts/extract_cjk_font.py
 	$(PYTHON) scripts/gen_clock_digits.py
-	$(PYTHON) scripts/gen_dashboard_clock.py "$(FONT_REG)"
 	$(PYTHON) scripts/gen_hint_atlas.py
 	$(MAKE) fallback-font
 

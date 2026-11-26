@@ -2,5 +2,6 @@
   "machine": "nanokvm-pro",
   "match": { "width": 172, "height": 320 },
   "keyboard": "grid",
-  "welcome": "split"
+  "welcome": "split",
+  "corner": 0
 }

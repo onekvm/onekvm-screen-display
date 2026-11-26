@@ -129,52 +129,158 @@ pub fn collect() {
     release_unused_stack();
 }
 
-/// Starting a guest touches more native code than steady home rendering.
-/// Keep the executable mapping, but release clean ELF pages after startup or
-/// teardown so Linux faults only the working set back in. Relocated/patched
-/// private dirty pages are excluded; anonymous mappings are never considered.
+/// Starting a guest touches more native code, bundle resources and font pages
+/// than steady home rendering. Keep the mappings, but release their clean pages
+/// after startup or teardown so Linux faults only the working set back in.
+/// This covers the executable, shared libraries and read-only file mappings
+/// (PAK, bytecode, fonts). Relocated/patched segments carry private pages
+/// (resident or swapped) and are excluded, as are devices and anonymous
+/// mappings. MADV_PAGEOUT also drops the clean pages from the page cache, which
+/// is charged to the service. There is deliberately no MADV_DONTNEED fallback:
+/// it would discard private copy-on-write pages that smaps may not show. Before
+/// Linux 5.4 the pages simply stay.
 pub fn release_cold_code_pages() {
     #[cfg(target_os = "linux")]
     {
         if unsafe { libc::syscall(libc::SYS_gettid) } != unsafe { libc::getpid() } as libc::c_long {
             return;
         }
-        let Ok(executable) = std::fs::read_link("/proc/self/exe") else {
-            return;
-        };
-        let suffix = format!(" {}", executable.display());
         let Ok(maps) = std::fs::read_to_string("/proc/self/smaps") else {
             return;
         };
-        let mut lines = maps.lines();
-        while let Some(header) = lines.next() {
-            let mut fields = header.split_whitespace();
-            let (Some(range), Some("r-xp")) = (fields.next(), fields.next()) else {
-                continue;
-            };
-            if !header.ends_with(&suffix) {
-                continue;
+        let mut own_files = std::collections::BTreeSet::new();
+        for (start, end, path) in clean_file_ranges(&maps) {
+            unsafe {
+                libc::madvise(start as *mut _, end - start, libc::MADV_PAGEOUT);
             }
-            let Some((start, end)) = range.split_once('-') else {
-                return;
-            };
-            let (Ok(start), Ok(end)) = (
-                usize::from_str_radix(start, 16),
-                usize::from_str_radix(end, 16),
-            ) else {
-                return;
-            };
-            for detail in lines.by_ref() {
-                if let Some(dirty) = detail.strip_prefix("Private_Dirty:") {
-                    if dirty.split_whitespace().next() == Some("0") && end > start {
-                        unsafe {
-                            libc::madvise(start as *mut _, end - start, libc::MADV_DONTNEED);
-                        }
-                    }
-                    return;
+            if !is_shared_library(path) {
+                own_files.insert(path);
+            }
+        }
+        // Pages already unmapped by MADV_DONTNEED (e.g. the per-second Shell
+        // collection) are invisible to page-out. Drop the cached pages of the
+        // host's own files; pages still mapped stay resident. Shared libraries
+        // are left alone because other processes use their cache too.
+        for path in own_files {
+            if let Ok(file) = std::fs::File::open(path) {
+                use std::os::fd::AsRawFd;
+                unsafe {
+                    libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED);
                 }
             }
         }
+    }
+}
+
+fn is_shared_library(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or_default();
+    name.ends_with(".so") || name.contains(".so.")
+}
+
+/// Read-only file mappings without private pages (dirty, anonymous or
+/// swapped), excluding devices and memfds. Paths may contain spaces.
+fn clean_file_ranges(smaps: &str) -> Vec<(usize, usize, &str)> {
+    let mut ranges = Vec::new();
+    // (range, path, Private_Dirty seen, no private pages so far)
+    type Candidate<'a> = Option<(usize, usize, &'a str, bool, bool)>;
+    fn finish<'a>(ranges: &mut Vec<(usize, usize, &'a str)>, current: Candidate<'a>) {
+        if let Some((start, end, path, true, true)) = current {
+            ranges.push((start, end, path));
+        }
+    }
+    let mut current: Candidate = None;
+    for line in smaps.lines() {
+        if let Some((field, value)) = line.split_once(':') {
+            if matches!(field, "Private_Dirty" | "Anonymous" | "Swap") {
+                if let Some(candidate) = current.as_mut() {
+                    candidate.3 |= field == "Private_Dirty";
+                    candidate.4 &= value.split_whitespace().next() == Some("0");
+                }
+                continue;
+            }
+        }
+        let Some((range, _)) = line.split_once(' ') else {
+            continue;
+        };
+        let Some((start, end)) = range.split_once('-') else {
+            continue;
+        };
+        let (Ok(start), Ok(end)) = (
+            usize::from_str_radix(start, 16),
+            usize::from_str_radix(end, 16),
+        ) else {
+            continue;
+        };
+        finish(&mut ranges, current.take());
+        // range perms offset dev inode [path]
+        let mut rest = line;
+        let mut perms = "";
+        for field in 0..5 {
+            let trimmed = rest.trim_start();
+            let (value, tail) = trimmed.split_once(char::is_whitespace).unwrap_or((trimmed, ""));
+            if field == 1 {
+                perms = value;
+            }
+            rest = tail;
+        }
+        let path = rest.trim();
+        let file = path.starts_with('/') && !path.starts_with("/dev/") && !path.starts_with("/memfd:");
+        current = (matches!(perms, "r-xp" | "r--p" | "r--s") && file && end > start).then_some((start, end, path, false, true));
+    }
+    finish(&mut ranges, current);
+    ranges
+}
+
+#[cfg(test)]
+mod release_tests {
+    use super::{clean_file_ranges, is_shared_library};
+
+    #[test]
+    fn selects_clean_read_only_file_mappings() {
+        let smaps = "\
+aaaa0000-aaab0000 r-xp 00000000 00:1a 42                 /usr/libexec/onekvm/onekvm-device-screen-display
+Private_Dirty:         0 kB
+aaab0000-aaab4000 r--p 00010000 00:1a 42                 /usr/libexec/onekvm/onekvm-device-screen-display
+Private_Dirty:        16 kB
+aaab4000-aaab5000 rw-p 00014000 00:1a 42                 /usr/libexec/onekvm/onekvm-device-screen-display
+Private_Dirty:         4 kB
+ffff0000-ffff8000 r--s 00000000 00:1a 50                 /usr/share/onekvm/screen-display/main.vue-vapor.pak
+Private_Dirty:         0 kB
+ffff8000-ffff9000 r--p 00000000 00:1a 51                 /data/onekvm/app-data/screen-display/app cache/x.jsc
+Private_Dirty:         0 kB
+ffff9000-ffffa000 rw-s 00000000 00:06 9                  /dev/fb0
+Private_Dirty:         0 kB
+ffffa000-ffffb000 r--s 00000000 00:06 10                 /dev/fb0
+Private_Dirty:         0 kB
+ffffb000-ffffc000 r--p 00000000 00:01 81                 /memfd:frames (deleted)
+Private_Dirty:         0 kB
+ffffc000-ffffd000 rw-p 00000000 00:00 0
+Private_Dirty:         4 kB
+ffffd000-ffffe000 r--p 00020000 00:1a 77                 /usr/lib/libquickjs.so.1
+Private_Dirty:         0 kB
+Anonymous:             0 kB
+Swap:                  8 kB
+ffffe000-fffff000 r--p 00021000 00:1a 77                 /usr/lib/libquickjs.so.1
+Private_Dirty:         0 kB
+Anonymous:             4 kB
+Swap:                  0 kB
+fffff000-100000000 r-xp 00000000 00:1a 78                /usr/lib/libm.so.6
+Private_Dirty:         0 kB
+Anonymous:             0 kB
+Swap:                  0 kB
+";
+        assert_eq!(
+            clean_file_ranges(smaps),
+            vec![
+                (0xaaaa0000, 0xaaab0000, "/usr/libexec/onekvm/onekvm-device-screen-display"),
+                (0xffff0000, 0xffff8000, "/usr/share/onekvm/screen-display/main.vue-vapor.pak"),
+                (0xffff8000, 0xffff9000, "/data/onekvm/app-data/screen-display/app cache/x.jsc"),
+                (0xfffff000, 0x100000000, "/usr/lib/libm.so.6"),
+            ]
+        );
+        assert!(is_shared_library("/usr/lib/libc.so"));
+        assert!(is_shared_library("/usr/lib/libgcc_s.so.1"));
+        assert!(!is_shared_library("/usr/share/onekvm/screen-display/fallback-font.bin"));
     }
 }
 

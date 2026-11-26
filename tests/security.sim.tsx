@@ -4,7 +4,7 @@ import { mount } from "@pocketjs/framework/vue-vapor";
 import { rootMirror } from "@pocketjs/framework/renderer";
 import Security from "../apps/security/src/Security";
 import { fields, fieldValue, patchField, type Snapshot } from "../apps/security/src/model";
-import { layoutKeys } from "../src/shell/keypad";
+import { layoutKeys, nextKeyMode } from "../src/shell/keypad";
 import { knobRow } from "../src/shell/ListRow";
 
 import { __packTouch } from "../../tmp/pocketjs/framework/src/touch";
@@ -118,12 +118,14 @@ await reveal("192.0.2.10"); await tap("192.0.2.10"); await tap(labels.unblock);
 assert.deepEqual(requests.at(-1).request, { id: "test-ban" }); assert.equal(requests.at(-1).method, "remove-ban");
 snapshot.bans = []; await reply(snapshot);
 await reveal(labels.add); await tap(labels.add); await tap(labels.address); await tap(labels.edit);
-await key("MD", "text");
-for (const char of "192") await key(char, "text", 1);
-await key("MD", "text", 1); await key("MD", "text", 2); await key(".", "text");
-await key("MD", "text"); await key("0", "text", 1); await key("MD", "text", 1); await key("MD", "text", 2); await key(".", "text");
-await key("MD", "text"); await key("2", "text", 1); await key("MD", "text", 1); await key("MD", "text", 2); await key(".", "text");
-await key("MD", "text"); await key("1", "text", 1); await key("OK", "text", 1); await tap(labels.save);
+// Step the mode key to the first mode, in the board's own order, that has each character.
+let textMode = 0;
+for (const char of "192.0.2.1") {
+  const want = [0, 1, 2, 3].find((mode) => layoutKeys("text", mode, { w, h }).caps.some((cap) => cap.token === char))!;
+  while (textMode !== want) { await key("MD", "text", textMode); textMode = nextKeyMode(textMode, { w, h }); }
+  await key(char, "text", textMode);
+}
+await key("OK", "text", textMode); await tap(labels.save);
 await reveal(labels.add); await tap(labels.add); assert.equal(requests.at(-1).method, "add-ban"); assert.equal(requests.at(-1).request.address, "192.0.2.1");
 await reply(null, false, "invalid ban address"); assert.equal(requests.at(-1).method, "get");
 await reply(snapshot); assert.ok(texts().includes(labels.invalid));

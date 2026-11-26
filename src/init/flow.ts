@@ -12,6 +12,15 @@ export const LIST_TOP = 28;
 export const ROW_H = LIST_ROW_H;
 export const ROW_PITCH = LIST_ROW_PITCH;
 
+/**
+ * Language of the setup screens and dialogs. Until a language is picked on the
+ * language step of this setup they are in English; a language stored on the
+ * device, for example by an earlier setup, is not used.
+ */
+export function setupLang(picked: string | null = null): Lang {
+  return picked ? normalizeLang(picked) : "en";
+}
+
 export function normalizeLang(raw: string): Lang {
   const n = raw.trim().toLowerCase().replace(/-/g, "_");
   if (n === "zh" || n === "zh_cn") return "zh";
@@ -65,6 +74,12 @@ type Copy = {
   scanFailed: string;
   connecting: string;
   wifiFail: string;
+  wifiPassword: string;
+  wifiBusy: string;
+  wifiPending: string;
+  wifiApOnly: string;
+  wifiService: string;
+  wifiWpa3Only: string;
   wifiOk: string;
   networkApplied: string;
   wifiDown: string;
@@ -136,6 +151,12 @@ const ZH: Copy = {
   scanFailed: "扫描失败",
   connecting: "正在连接",
   wifiFail: "连接失败，请重试",
+  wifiPassword: "密码需 8～63 个字符",
+  wifiBusy: "无线正忙，请稍后重试",
+  wifiPending: "请在网页确认网络配置",
+  wifiApOnly: "请在网页退出仅热点模式",
+  wifiService: "无线不可用，请稍后重试",
+  wifiWpa3Only: "不支持仅 WPA3 的网络",
   wifiOk: "已连接",
   networkApplied: "网络配置已应用",
   wifiDown: "未连接",
@@ -207,6 +228,12 @@ const ZHT: Copy = {
   scanFailed: "掃描失敗",
   connecting: "正在連線",
   wifiFail: "連線失敗，請重試",
+  wifiPassword: "密碼需 8～63 個字元",
+  wifiBusy: "無線忙碌，請稍後重試",
+  wifiPending: "請在網頁確認網路設定",
+  wifiApOnly: "請在網頁退出僅熱點模式",
+  wifiService: "無線無法使用，請稍後重試",
+  wifiWpa3Only: "不支援僅 WPA3 的網路",
   wifiOk: "已連線",
   networkApplied: "網路設定已套用",
   wifiDown: "未連線",
@@ -278,6 +305,12 @@ const EN: Copy = {
   scanFailed: "Scan failed",
   connecting: "Connecting",
   wifiFail: "Connection failed. Try again",
+  wifiPassword: "Password: 8–63 characters",
+  wifiBusy: "Wi-Fi busy. Retry later",
+  wifiPending: "Confirm network on web",
+  wifiApOnly: "Exit hotspot-only on web",
+  wifiService: "Wi-Fi down. Retry later",
+  wifiWpa3Only: "WPA3-only not supported",
   wifiOk: "Connected",
   networkApplied: "Network settings applied",
   wifiDown: "Not connected",
@@ -677,11 +710,17 @@ type WelcomeBox = {
   hint: { x: number; y: number; w: number; h: number; line: number; align: "center" | "start" } | null;
 };
 
-function welcomeSplit(scr: { w: number; h: number }): WelcomeBox {
-  const margin = 12;
+/**
+ * Space kept clear along the panel edges. Go's 284x240 panel has rounded
+ * corners; 12 px on both edges keeps a corner radius up to 40 px off content.
+ */
+export const EDGE = 12;
+
+function welcomeSplit(scr: { w: number; h: number }, bottom: number): WelcomeBox {
+  const margin = EDGE;
   const size = 48;
   const nextW = Math.max(size, scr.w - margin * 2);
-  const nextY = Math.max(0, scr.h - margin - size);
+  const nextY = Math.max(0, scr.h - Math.max(margin, bottom) - size);
   const top = 8;
   const bandH = Math.max(22, nextY - 8 - top);
   const gap = 12;
@@ -712,14 +751,75 @@ function welcomeSplit(scr: { w: number; h: number }): WelcomeBox {
   };
 }
 
+/** Where the wordmark sits in src/logo.png (256x128); the rest is transparent. */
+const LOGO_INK_TOP = 40 / 128;
+const LOGO_INK_H = 48 / 128;
+const LOGO_INK_CENTRE = 121.5 / 256;
+
+/**
+ * Landscape panels whose welcome face stacks: logo, addresses and the split
+ * layout's button, centred, with equal visible gaps above the wordmark,
+ * between it and the addresses, and above the button.
+ */
+function welcomeColumn(scr: { w: number; h: number }, bottom: number): WelcomeBox {
+  const split = welcomeSplit(scr, bottom);
+  const line = 22;
+  const hintH = welcomeHintLines("en", "0.0.0.0", scr.w).length * line;
+  const room = split.next.y - EDGE - hintH;
+  const minGap = 8;
+  let logoW = Math.min(208, scr.w - EDGE * 2);
+  let logoH = Math.round(logoW / 2);
+  if (logoH * LOGO_INK_H > room - minGap * 3) {
+    logoH = Math.max(2, Math.floor((room - minGap * 3) / LOGO_INK_H));
+    logoW = logoH * 2;
+  }
+  const ink = Math.round(logoH * LOGO_INK_H);
+  const gap = Math.max(0, Math.floor((room - ink) / 3));
+  const inkY = EDGE + gap;
+  return {
+    logo: {
+      // Centre the wordmark, which sits slightly left in the texture.
+      x: Math.round(scr.w / 2 - logoW * LOGO_INK_CENTRE),
+      y: Math.max(0, Math.round(inkY - logoH * LOGO_INK_TOP)),
+      w: logoW,
+      h: logoH,
+    },
+    next: split.next,
+    hint: { x: EDGE, y: inkY + ink + gap, w: scr.w - EDGE * 2, h: hintH, line, align: "center" },
+  };
+}
+
 /** Welcome faces rotate on this period while an access point is on the air. */
 export const WELCOME_FACE_MS = 20000;
-/** Right-hand page dots and the switch countdown. */
-export const WELCOME_RAIL_W = 28;
+/** Bottom strip holding the page dots and the switch countdown. */
+export const WELCOME_PAGER_H = 28;
 
-export function welcomeContentWidth(width: number, pages: number): number {
-  if (pages < 2) return width;
-  return Math.max(40, width - WELCOME_RAIL_W);
+/** Space the faces keep free at the bottom edge for the page dots. */
+export function welcomeBottom(pages: number): number {
+  return pages > 1 ? WELCOME_PAGER_H : 0;
+}
+
+export type WelcomePager = {
+  /** Centre of each page dot; the current one carries the countdown ring. */
+  dots: { x: number; y: number }[];
+  ring: number;
+  dot: number;
+  /** Tap target: the bottom strip around the dots. */
+  hit: { x: number; y: number; w: number; h: number };
+};
+
+/** Page dots side by side at the bottom centre, clear of the rounded corners. */
+export function welcomePager(scr: { w: number; h: number }, pages: number): WelcomePager {
+  const pitch = 26;
+  const y = scr.h - Math.round(WELCOME_PAGER_H / 2);
+  const first = Math.round(scr.w / 2 - ((pages - 1) * pitch) / 2);
+  const hitW = Math.min(scr.w - EDGE * 4, Math.max(96, pages * pitch + 48));
+  return {
+    dots: Array.from({ length: pages }, (_, index) => ({ x: first + index * pitch, y })),
+    ring: 18,
+    dot: 6,
+    hit: { x: Math.round((scr.w - hitW) / 2), y: scr.h - WELCOME_PAGER_H, w: hitW, h: WELCOME_PAGER_H },
+  };
 }
 
 export function welcomeFaceAt(elapsedMs: number, pages: number): number {
@@ -745,65 +845,212 @@ export function welcomeKnobFace(current: number, delta: number, pages: number): 
   return (at + step) % pages;
 }
 
+/** A horizontal swipe turns the page like a detent: leftward goes forward. */
+export function welcomeSwipeFace(current: number, dx: number, dy: number, pages: number): number | null {
+  if (pages <= 1 || Math.abs(dx) < 28 || Math.abs(dx) <= Math.abs(dy)) return null;
+  return welcomeKnobFace(current, dx < 0 ? 1 : -1, pages);
+}
+
 /** 0 at the start of a face, 1 at the moment it switches. */
 export function welcomeFaceProgress(elapsedMs: number): number {
   if (elapsedMs <= 0) return 0;
   return (elapsedMs % WELCOME_FACE_MS) / WELCOME_FACE_MS;
 }
 
+/** QR modules of white kept around the code, as the QR specification asks. */
+export const AP_QUIET = 4;
+/** Narrowest text column beside the code on a wide or square panel. */
+const AP_TEXT_MIN = 96;
+const AP_GAP = 10;
+/** Atlas slots: 12 px labels, 14 px and 16 px values, 14 px bold title. */
+export const AP_SLOT = { label: 0, small: 1, value: 2, title: 8 } as const;
+const AP_LINE: Record<number, number> = { 0: 16, 1: 19, 2: 22, 8: 19 };
+const AP_PX: Record<number, number> = { 0: 12, 1: 14, 2: 16, 8: 14 };
+
+export type TextMeasure = (text: string, slot: number) => number;
+
+/** Fallback width when the host cannot measure: CJK is square, Latin about 0.62 em. */
+export function estimateText(text: string, slot: number): number {
+  const px = AP_PX[slot] ?? 16;
+  let width = 0;
+  for (const char of text) width += char.codePointAt(0)! >= 0x2e80 ? px : px * 0.62;
+  return Math.ceil(width);
+}
+
+/** Break at spaces when a word fits, otherwise between characters. */
+export function wrapText(text: string, width: number, slot: number, measure: TextMeasure): string[] {
+  const out: string[] = [];
+  let line = "";
+  const push = (piece: string) => {
+    for (const char of piece) {
+      if (line && measure(line + char, slot) > width) {
+        out.push(line.trimEnd());
+        line = char === " " ? "" : char;
+      } else line += char;
+    }
+  };
+  for (const word of text.split(/(?<= )/)) {
+    if (line && measure(line + word, slot) > width && measure(word.trimEnd(), slot) <= width) {
+      out.push(line.trimEnd());
+      line = "";
+    }
+    push(word);
+  }
+  if (line) out.push(line.trimEnd());
+  return out.length ? out : [""];
+}
+
+export type ApCopy = { title: string; ssidLabel: string; passwordLabel: string; ssid: string; password: string };
+export type ApLine = { text: string; x: number; y: number; slot: number; tone: "title" | "label" | "value" };
 export type ApFaceBox = {
   qr: { x: number; y: number; size: number; module: number };
-  text: { x: number; y: number; w: number; row: number };
+  lines: ApLine[];
 };
 
-/** QR beside the name and password on a wide panel, above them on a tall one. */
-export function apFaceLayout(box: { w: number; h: number }, modules: number): ApFaceBox {
-  const quiet = Math.max(21, modules) + 8;
-  if (box.w > box.h) {
-    const module = Math.max(2, Math.floor(Math.min(box.h - 16, Math.round(box.w * 0.48)) / quiet));
-    const size = module * quiet;
-    const x = 8;
-    const textX = x + size + 8;
+type ApBlock = { lines: ApLine[]; w: number; h: number };
+
+/**
+ * Network name and password. Values use 16 px, then 14 px, then 12 px while
+ * they fit on one line, and wrap at 14 px (12 px when `dense`) only when even
+ * 12 px does not fit. `inline` puts each label in front of its value when both rows fit.
+ */
+function apBlock(copy: ApCopy, width: number, measure: TextMeasure, title: boolean, inline: boolean, dense = false): ApBlock {
+  const rows = [[copy.ssidLabel, copy.ssid], [copy.passwordLabel, copy.password]];
+  const labelW = Math.max(...rows.map(([label]) => measure(label, AP_SLOT.label))) + 8;
+  const fits = (slot: number, room: number) => rows.every(([, value]) => measure(value, slot) <= room);
+  const pick = (room: number) => [AP_SLOT.value, AP_SLOT.small, AP_SLOT.label].find((slot) => fits(slot, room));
+  const side = inline ? pick(width - labelW) : undefined;
+  const slot = side ?? pick(width) ?? (dense ? AP_SLOT.label : AP_SLOT.small);
+  const lines: ApLine[] = [];
+  let y = 0;
+  let w = 0;
+  const add = (text: string, x: number, slot: number, tone: ApLine["tone"]) => {
+    lines.push({ text, x, y, slot, tone });
+    w = Math.max(w, x + measure(text, slot));
+  };
+  if (title) {
+    for (const line of wrapText(copy.title, width, AP_SLOT.title, measure)) {
+      add(line, 0, AP_SLOT.title, "title");
+      y += AP_LINE[AP_SLOT.title];
+    }
+    y += 6;
+  }
+  rows.forEach(([label, value], index) => {
+    if (index) y += 6;
+    if (side !== undefined) {
+      const lineH = AP_LINE[slot];
+      lines.push({ text: label, x: 0, y: y + lineH - AP_LINE[AP_SLOT.label] - 1, slot: AP_SLOT.label, tone: "label" });
+      add(value, labelW, slot, "value");
+      y += lineH;
+      return;
+    }
+    add(label, 0, AP_SLOT.label, "label");
+    y += AP_LINE[AP_SLOT.label];
+    for (const line of wrapText(value, width, slot, measure)) {
+      add(line, 0, slot, "value");
+      y += AP_LINE[slot];
+    }
+  });
+  return { lines, w: Math.min(width, Math.ceil(w)), h: y };
+}
+
+function shift(block: ApBlock, x: number, y: number): ApLine[] {
+  return block.lines.map((line) => ({ ...line, x: line.x + x, y: line.y + y }));
+}
+
+/**
+ * Setup hotspot face. A wide or square panel puts the code on the left and
+ * the text beside it; a tall panel stacks the title, the code and the text.
+ * The code takes the largest whole-pixel module that leaves the text room.
+ * `bottom` is kept free for the page dots.
+ */
+export function apFaceLayout(
+  box: { w: number; h: number },
+  modules: number,
+  copy: ApCopy,
+  measure: TextMeasure = estimateText,
+  bottom = 0,
+): ApFaceBox {
+  const span = Math.max(21, modules) + AP_QUIET * 2;
+  const top = EDGE;
+  const availH = Math.max(span, box.h - top - Math.max(EDGE, bottom));
+  if (box.w >= box.h) {
+    let module = Math.max(1, Math.floor(availH / span));
+    let block: ApBlock;
+    for (;; module--) {
+      // The text column ends away from the corners, so 8 px is enough there.
+      const textW = box.w - EDGE - module * span - AP_GAP - 8;
+      if (textW < AP_TEXT_MIN && module > 2) continue;
+      block = apBlock(copy, textW, measure, true, false);
+      if (block.h <= availH) break;
+      block = apBlock(copy, textW, measure, true, false, true);
+      if (block.h <= availH) break;
+      if (module <= 2) {
+        // Very long credentials: the code already says what to do.
+        block = apBlock(copy, textW, measure, false, false, true);
+        break;
+      }
+    }
+    const size = module * span;
+    // Centre the code and the text as one group.
+    const left = Math.max(EDGE, Math.round((box.w - size - AP_GAP - block.w) / 2));
+    const textY = top + Math.max(0, Math.round((availH - block.h) / 2));
     return {
-      qr: { x, y: Math.max(0, Math.round((box.h - size) / 2)), size, module },
-      text: {
-        x: textX,
-        y: Math.max(8, Math.round((box.h - 56) / 2)),
-        w: Math.max(40, box.w - textX - 8),
-        row: 28,
-      },
+      qr: { x: left, y: top + Math.round((availH - size) / 2), size, module },
+      lines: shift(block, left + size + AP_GAP, textY),
     };
   }
-  const module = Math.max(2, Math.floor(Math.min(box.w - 16, box.h - 72) / quiet));
-  const size = module * quiet;
-  return {
-    qr: { x: Math.max(0, Math.round((box.w - size) / 2)), y: 8, size, module },
-    text: { x: 8, y: 8 + size + 6, w: Math.max(40, box.w - 16), row: 24 },
-  };
+  const width = box.w - EDGE * 2;
+  const titleLines = wrapText(copy.title, width, AP_SLOT.title, measure);
+  const titleH = titleLines.length * AP_LINE[AP_SLOT.title];
+  const gap = 8;
+  let block = apBlock(copy, width, measure, false, true);
+  // Keep at least a 2 px module; long credentials drop to 12 px first.
+  if (availH - titleH - gap * 2 - block.h < span * 2) block = apBlock(copy, width, measure, false, true, true);
+  const room = availH - titleH - gap * 2 - block.h;
+  const module = Math.max(1, Math.floor(Math.min(width, room) / span));
+  const size = module * span;
+  const total = titleH + gap + size + gap + block.h;
+  let y = top + Math.max(0, Math.round((availH - total) / 2));
+  const lines: ApLine[] = titleLines.map((text, index) => ({
+    text,
+    x: Math.round((box.w - measure(text, AP_SLOT.title)) / 2),
+    y: y + index * AP_LINE[AP_SLOT.title],
+    slot: AP_SLOT.title,
+    tone: "title",
+  }));
+  y += titleH + gap;
+  const qr = { x: Math.round((box.w - size) / 2), y, size, module };
+  y += size + gap;
+  return { qr, lines: [...lines, ...shift(block, Math.round((box.w - block.w) / 2), y)] };
 }
 
 /**
  * Logo stays clear of the forward control.
  * A wide machine with `welcome: "split"` puts the logo on the left and the
  * address on the right. A square screen keeps the logo centered above them.
+ * `bottom` is kept free below the forward control for the page dots.
  */
 export function welcomeLayout(
   scr: { w: number; h: number },
   hint = false,
   arrange?: "split" | "stack",
+  bottom = 0,
 ): WelcomeBox {
+  const landscape = scr.w > scr.h;
   const split =
     hint &&
     (arrange === "split" ||
-      (arrange !== "stack" && scr.w > scr.h && layoutFor(scr).welcome === "split"));
-  if (split) return welcomeSplit(scr);
+      (arrange !== "stack" && landscape && layoutFor(scr).welcome === "split"));
+  if (split) return welcomeSplit(scr, bottom);
+  if (hint && landscape) return welcomeColumn(scr, bottom);
   let logoW = Math.min(Math.max(40, scr.w - 24), 208);
   // src/logo.png is a 256x128 texture; the wordmark sits in the middle of it.
   let logoH = Math.max(1, Math.round(logoW / 2));
   const size = 56;
   const margin = 16;
   const nextW = Math.max(size, scr.w - margin * 2);
-  const nextY = Math.max(0, scr.h - margin - size);
+  const nextY = Math.max(0, scr.h - Math.max(margin, bottom) - size);
   let logoLimit = nextY - 8;
   let hintBox: WelcomeBox["hint"] = null;
   if (hint) {
@@ -878,6 +1125,7 @@ export type Action =
   | { type: "close-v4" }
   | { type: "drawer"; which: "v4" | "v6" }
   | { type: "wifi"; ssid: string; password: string }
+  | { type: "alert"; code: string }
   | { type: "apply" }
   | { type: "next" }
   | { type: "back" }
@@ -966,6 +1214,8 @@ export function decide(s: PageState, rowId: string): Action {
     if (rowId.startsWith("ap:")) {
       const ap = s.aps[Number(rowId.slice(3))];
       if (!ap) return { type: "noop" };
+      // Core joins protected networks over WPA-PSK, which SAE-only networks refuse.
+      if (ap.security === "wpa3") return { type: "alert", code: "wifi-wpa3" };
       if (!ap.secure) return { type: "wifi", ssid: ap.ssid, password: "" };
       return { type: "keyboard", kind: "text", target: `wifi:${ap.ssid}`, secret: true, max: 64, initial: "" };
     }
@@ -982,6 +1232,29 @@ export function decide(s: PageState, rowId: string): Action {
   }
   if (rowId === "auth") return { type: "auth" };
   return { type: "noop" };
+}
+
+/** Title band of a list step: text lines up with the row text, step dots sit at the right. */
+export const TITLE_X = 20;
+
+export type StepDots = { dots: { x: number; y: number; state: "done" | "current" | "next" }[]; size: number; right: number };
+
+/** One dot per step after the welcome; `right` is the band width they take from the right edge. */
+export function stepDots(step: Step, width: number): StepDots {
+  const steps = STEPS.slice(1);
+  const at = steps.indexOf(step as (typeof steps)[number]);
+  const pitch = 10;
+  const size = 6;
+  const last = width - TITLE_X - size / 2;
+  return {
+    dots: steps.map((_, index) => ({
+      x: last - (steps.length - 1 - index) * pitch,
+      y: Math.round(LIST_TOP / 2),
+      state: index < at ? "done" : index === at ? "current" : "next",
+    })),
+    size,
+    right: TITLE_X + (steps.length - 1) * pitch + size + 8,
+  };
 }
 
 export function nextStep(step: Step): Step {
@@ -1115,6 +1388,8 @@ export function fieldLabel(target: string, lang: string): string {
   if (target === "username") return c.username;
   if (target === "pass1" || target.startsWith("wifi:")) return c.password;
   if (target === "pass2") return c.confirm;
+  if (target === "v4ip") return "IP";
+  if (target === "v4mask") return c.mask;
   if (target === "v4addr" || target === "v6addr") return c.address;
   if (target === "v4gw" || target === "v6gw") return c.gateway;
   if (target === "dns") return c.dns;
@@ -1300,6 +1575,12 @@ export function explain(code: string, lang: string): string {
   if (code === "ssid") return c.ssid;
   if (code === "scan") return c.scanFailed;
   if (code === "wifi") return c.wifiFail;
+  if (code === "wifi-password") return c.wifiPassword;
+  if (code === "wifi-busy") return c.wifiBusy;
+  if (code === "wifi-pending") return c.wifiPending;
+  if (code === "wifi-ap-only") return c.wifiApOnly;
+  if (code === "wifi-core") return c.wifiService;
+  if (code === "wifi-wpa3") return c.wifiWpa3Only;
   if (code === "wifi-ok") return c.wifiOk;
   if (code === "net-ok") return c.networkApplied;
   if (code === "vlan") return c.badVlan;

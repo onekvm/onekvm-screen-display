@@ -40,6 +40,8 @@ import {
   type MediaAssetLibrary,
 } from './media-asset'
 import {
+  MAX_HOME_WIDGET_HEIGHT,
+  MAX_HOME_WIDGET_WIDTH,
   expandHomeWidgetTemplate,
   normalizeHomeWidgetStatus,
   homeStatusStyle,
@@ -1009,8 +1011,8 @@ onBeforeUnmount(() => {
                 v-if="selectedIds.length === 1 && selectedHomeItem && selectedPlacement"
                 :placement="selectedPlacement"
                 :kind="placementKind(selectedPlacement, selectedHomeItem.widget)"
-                :max-width="Math.min(240, panel.width)"
-                :max-height="Math.min(120, panel.height)"
+                :max-width="Math.min(MAX_HOME_WIDGET_WIDTH, panel.width)"
+                :max-height="Math.min(MAX_HOME_WIDGET_HEIGHT, panel.height)"
                 :labels="{
                   componentSettings: t('componentSettings'), componentContent: t('componentContent'),
                   variableHint: t('variableHint'), statusHint: t('statusHint'), statusSource: t('statusSource'),

@@ -5,7 +5,9 @@ import { COLOR, FONT } from "./ui";
 
 type Action = { label: string; onPress: () => void };
 
-/** The owner routes rotary and Back input while this modal is open. */
+/** The owner routes rotary and Back input while this modal is open. The
+ * backdrop is opaque: on small panels, rows dimmed behind the dialog were cut
+ * off at its edges. */
 export function FeedbackModal(props: {
   width: number;
   height: number;
@@ -35,7 +37,7 @@ export function FeedbackModal(props: {
   return (
     <View class="absolute" style={{ insetL: 0, insetT: 0, width: props.width, height: props.height }}>
       <View
-        class="absolute bg-black opacity-60"
+        class="absolute bg-black"
         style={{ insetL: 0, insetT: 0, width: props.width, height: props.height }}
         focusable
         onPress={() => { if (!props.busy) props.onBackdrop?.(); }}

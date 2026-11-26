@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import io
+import os
 import re
 from pathlib import Path
 
@@ -14,8 +15,12 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise SystemExit("need cairosvg (python3 -m venv && pip install cairosvg)") from exc
 
+# Same @lucide/vue build the Web UI ships; override with LUCIDE_VUE_JS.
 LUCIDE_JS = Path(
-    "/home/samlm/projects/onekvm/onekvm-ui/node_modules/@lucide/vue/dist/cjs/lucide-vue.js"
+    os.environ.get("LUCIDE_VUE_JS")
+    or Path(__file__).resolve().parents[2]
+    / "onekvm-ui"
+    / "node_modules/@lucide/vue/dist/cjs/lucide-vue.js"
 )
 OUT = Path(__file__).with_name("icon_atlas.h")
 
@@ -97,6 +102,8 @@ def emit(icons: list[tuple[str, list[int]]]) -> str:
 
 
 def main() -> None:
+    if not LUCIDE_JS.is_file():
+        raise SystemExit(f"missing {LUCIDE_JS}; set LUCIDE_VUE_JS to @lucide/vue/dist/cjs/lucide-vue.js")
     source = LUCIDE_JS.read_text()
     nodes = extract_nodes(source)
     missing = [kebab for _, kebab in ICONS if kebab not in nodes]

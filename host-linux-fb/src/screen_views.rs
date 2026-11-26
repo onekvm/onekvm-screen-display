@@ -178,7 +178,7 @@ impl Views {
                 let Some(instance) = placement["id"].as_str() else { continue; };
                 let id = placement["widget"].as_str().unwrap_or(instance);
                 if !available(id, "widget") || !controls_match(id, shared) { continue; }
-                let width = dimension(&placement["width"], 64, 240).max(2);
+                let width = dimension(&placement["width"], 64, 320).max(2);
                 let height = dimension(&placement["height"], 24, 120);
                 wanted.insert(slot, (id.into(), instance.into(), "widget", width, height, placement["settings"].clone()));
             }

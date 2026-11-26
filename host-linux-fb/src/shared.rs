@@ -52,6 +52,7 @@ pub struct AppDrawerTransition {
 pub struct Shared {
     pub wake: crate::wake::Wake,
     pub frame_timer: crate::frame_timer::FrameTimer,
+    pub shell_timer: crate::frame_timer::FrameTimer,
     pub remote: crate::remote::Remote,
     pub devtools: Arc<crate::devtools::Hub>,
     pub system_actions: crate::system_actions::SystemActions,
@@ -82,6 +83,7 @@ pub struct Shared {
     home_pill_until: Mutex<Option<Instant>>,
     back: AtomicBool,
     catalog_gen: AtomicU32,
+    home_gen: AtomicU32,
     app_state_gen: AtomicU32,
     pages_stale: AtomicBool,
     pub catalog_event: crate::events::Notify,
@@ -245,6 +247,7 @@ impl Shared {
             wake: crate::wake::Wake::default(),
             devtools: Arc::new(crate::devtools::Hub::default()),
             frame_timer: crate::frame_timer::FrameTimer::default(),
+            shell_timer: crate::frame_timer::FrameTimer::default(),
             system_actions: crate::system_actions::SystemActions::default(),
             diagnostics: crate::diagnostics::Diagnostics::default(),
             adb_debug: crate::adb_debug::AdbDebug::default(),
@@ -273,6 +276,7 @@ impl Shared {
             home_pill_until: Mutex::new(None),
             back: AtomicBool::new(false),
             catalog_gen: AtomicU32::new(1),
+            home_gen: AtomicU32::new(1),
             app_state_gen: AtomicU32::new(1),
             pages_stale: AtomicBool::new(false),
             catalog_event: crate::events::Notify::default(),
@@ -367,6 +371,7 @@ impl Shared {
 
     pub fn invalidate_app_state(&self) {
         self.app_state_gen.fetch_add(1, Ordering::Relaxed);
+        self.home_gen.fetch_add(1, Ordering::Relaxed);
         self.set_hot(true);
     }
 
@@ -1263,6 +1268,7 @@ impl Shared {
             "faces" => crate::contributions::list("screen-display.face"),
             "widgets" => crate::contributions::list("screen-display.widget"),
             "appsGen" => self.catalog_gen().to_string(),
+            "homeGen" => format!("{}/{}", self.catalog_gen(), self.home_gen.load(Ordering::Relaxed)),
             "appResponse" => self.extension_rpc_response(),
             "settingsPage" => self.settings_page.lock().unwrap().clone(),
             "launcher" => crate::launcher::json(),
@@ -1485,6 +1491,12 @@ impl Shared {
             }
             "layout" => self.set_layout_json(value),
             "hot" => self.set_hot(value == "1" || value == "true"),
+            "shellFrameAfter" => {
+                if let Ok(ms) = value.parse::<u64>() {
+                    if ms == 0 { self.shell_timer.clear(); }
+                    else { self.shell_timer.schedule(Duration::from_millis(ms.min(172_800_000))); }
+                }
+            }
             "frameAfter" => {
                 if let Ok(ms) = value.parse::<u64>() {
                     if ms == 0 { self.frame_timer.clear(); }
@@ -1681,6 +1693,7 @@ impl Shared {
         if *cache != json {
             *cache = json;
             drop(cache);
+            self.home_gen.fetch_add(1, Ordering::Relaxed);
             self.set_hot(true);
         }
     }
@@ -1701,6 +1714,7 @@ impl Shared {
         *resources = Some(value);
         drop(cache);
         drop(resources);
+        if changed { self.home_gen.fetch_add(1, Ordering::Relaxed); }
         if changed && self.shell_page() == 0 && !self.is_blanked() {
             self.set_hot(true);
         }
@@ -1709,9 +1723,11 @@ impl Shared {
     pub fn update_fps(&self, fps: i32) {
         let mut cache = self.system_json.lock().unwrap();
         let Ok(mut state) = serde_json::from_str::<serde_json::Value>(&cache) else { return; };
+        if state["video"]["actual_fps"] == serde_json::json!(fps) { return; }
         state["video"]["actual_fps"] = serde_json::json!(fps);
         *cache = state.to_string().into();
         drop(cache);
+        self.home_gen.fetch_add(1, Ordering::Relaxed);
         self.set_hot(true);
     }
 
@@ -1719,6 +1735,7 @@ impl Shared {
         let mut resources = self.system_resources.lock().unwrap();
         *resources = None;
         *self.system_json.lock().unwrap() = Arc::from("");
+        self.home_gen.fetch_add(1, Ordering::Relaxed);
         self.set_hot(true);
     }
 

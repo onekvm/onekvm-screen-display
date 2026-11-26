@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'bun:test'
-import { homeWidgetSize } from '../src/shared/homeWidgets'
+import { homeWidgetSize, MAX_HOME_WIDGET_HEIGHT, MAX_HOME_WIDGET_WIDTH } from '../src/shared/homeWidgets'
 import { parseLayout } from '../web/display/types'
 import { resizeHomeWidget } from '../web/display/widget-resize'
 
@@ -33,8 +33,8 @@ test('dragged sizes survive layout saving at both size limits', () => {
     const saved = parseLayout(JSON.stringify({ mode: 'free', home_widgets: [{ id: 'resized', kind: 'rect', ...result }] })).home_widgets[0]
     assert.equal(saved.width, result.width)
     assert.equal(saved.height, result.height)
-    assert.ok(result.width! >= 2 && result.width! <= 240)
-    assert.ok(result.height! >= 1 && result.height! <= 120)
+    assert.ok(result.width! >= 2 && result.width! <= Math.min(MAX_HOME_WIDGET_WIDTH, panel.width))
+    assert.ok(result.height! >= 1 && result.height! <= Math.min(MAX_HOME_WIDGET_HEIGHT, panel.height))
   }
 })
 

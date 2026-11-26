@@ -3,6 +3,8 @@ import { normalizeClockFormat, type ClockFormat } from '../../src/shared/clockFo
 import { normalizeBackgroundCrop, type BackgroundCrop } from './background-crop'
 import {
   BUILTIN_HOME_WIDGET_SOURCES,
+  MAX_HOME_WIDGET_HEIGHT,
+  MAX_HOME_WIDGET_WIDTH,
   builtinHomeWidgetKind,
   type HomeStatusSource,
   type HomeWidgetKind,
@@ -528,8 +530,8 @@ export function parseLayout(raw: unknown): ScreenLayout {
           ...(['text', 'icon', 'image'].includes(entry.status_style || '') ? { status_style: entry.status_style } : {}),
           filled: typeof entry.filled === 'boolean' ? entry.filled : undefined,
           hidden: entry.hidden === true,
-          width: entry.width === undefined ? undefined : bounded(entry.width, 64, 2, 240),
-          height: entry.height === undefined ? undefined : bounded(entry.height, 24, 1, 120),
+          width: entry.width === undefined ? undefined : bounded(entry.width, 64, 2, MAX_HOME_WIDGET_WIDTH),
+          height: entry.height === undefined ? undefined : bounded(entry.height, 24, 1, MAX_HOME_WIDGET_HEIGHT),
           slot: typeof entry.slot === 'string' ? entry.slot : undefined,
           column: bounded(entry.column, 0, 0, 7), row: bounded(entry.row, 0, 0, 7),
           x: bounded(entry.x, legacyFixed ? legacySlot?.x ?? 50 : 50, 0, 100),

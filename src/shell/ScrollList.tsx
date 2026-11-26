@@ -75,7 +75,7 @@ export function ScrollList(props: { width: number; height: number; rows: ScrollL
   return <View class="relative overflow-hidden" style={{ width: props.width, height: viewport() }}>
     <View nodeRef={bind} class="absolute flex flex-col gap-1" style={{ width: props.width - 16, height: content(), insetL: 8, insetT: 0 }}>
       {[...props.rows, { id: "__refresh", label: props.refresh, value: props.status || "›" }].map((row, index) =>
-        <ListRow key={row.id} title={row.label} value={row.value} rowIndex={index} onPress={() => props.onSelect(index)} />)}
+        <ListRow key={row.id} title={row.label} value={row.value} rowIndex={index} width={props.width - 16} onPress={() => props.onSelect(index)} />)}
     </View>
   </View>;
 }

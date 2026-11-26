@@ -46,9 +46,19 @@ Returning home restores the parked shell.
   Core; contributed Apps and public D-Bus `Set` cannot invoke them. The screen
   service starts with multi-user.target and remains running when Core is stopped,
   restarted or fails. Core-backed settings still require Core.
+  Until a language is picked on its language step, initialization shows English,
+  including the startup, diagnostics and ADB dialogs and the hotspot page; a
+  language stored on the device by an earlier setup is not used. The welcome
+  page addresses have no translated text.
   The welcome button cycles languages every 5 seconds with a 680 ms transition.
-  When the welcome screen has multiple pages, the active page dot carries the
-  automatic page-switch countdown as an outer ring.
+  When the setup hotspot is on, the welcome screen has two full-width pages
+  and page dots in a 28 px strip at the bottom centre; the active dot carries
+  the automatic page-switch countdown as an outer ring. A horizontal swipe, a
+  tap on the dots or a knob detent turns the page and restarts the countdown.
+  List steps show one dot per setup step at the right of the title.
+  The model layout's `welcome` value also applies in landscape. NanoKVM Go
+  (`stack`) shows the logo, then the addresses, then the button, centred;
+  NanoKVM Pro Desk (`split`) keeps the logo left of the addresses.
   It does not load the
   app catalog, and it ignores `launch`. After it writes
   `setup-complete` and exits, the entry starts again and `exec`s `main`.
@@ -149,11 +159,16 @@ same font size for AM/PM and the time. All clock styles and the native display
 share this setting (`layout_json.clock_format`: `12h` or `24h`); saved layouts
 without the field use 12-hour time. Clock size and placement are independent.
 
-NanoKVM Pro Desk uses the layout in `src/shared/default-layouts/nanokvm-pro-desk.json`
+NanoKVM Pro Desk, NanoKVM Go and PicoKVM use model layouts in `src/shared/default-layouts/`
 for new installations and Restore default: the blue Apurv Das / Unsplash background,
-translucent cards, live status icons and a 1.5× clock. Saved custom layouts remain
-in use after upgrades. The same model preset is supplied to the designer by the
-screen service; other models retain their existing defaults.
+translucent cards, live status icons and a 1.5× clock. The Go layout has no
+Ethernet icon; its full-width network card leads with the address, above CPU
+and video tiles. The PicoKVM layout fills the square panel the same way without
+a Wi-Fi icon: USB HID and live sessions sit beside the clock, Ethernet on the
+address card and HDMI on the video tile.
+Saved custom layouts remain in use after upgrades. The same model preset is
+supplied to the designer by the screen service; other models retain their
+existing defaults.
 
 The physical network editors commit all edited fields together through Core's
 privileged local management D-Bus API. They wait for network application to
@@ -182,12 +197,37 @@ The settings and initialization Wi-Fi lists display the device radio's hardware
 maximum from Core's cached `radio_generation`, matching the Web badge. A nearby
 hotspot's advertised standard never substitutes for an unknown hardware maximum.
 
+Connecting from the Settings Wi-Fi list opens a progress dialog with the network
+name. The host sends the request to Core's local Wi-Fi management, which saves
+the network once it joins and restores the previous networks when it does not,
+and polls Core's status until the attempt ends. A password must be 8–63 bytes;
+64 hexadecimal digits are passed as the derived key. The dialog then shows the
+joined network, or the failure with what to do: check the password (protected
+network) or the signal (open network), wait for another connection, confirm a
+pending network change on the web, or leave hotspot-only mode. For a protected
+network, Retry reopens the password from the last attempt; an open network
+reconnects directly. The list is scanned again after every attempt.
+Core joins protected networks with WPA2-Personal, so a WPA3-only network (SAE
+without PSK) is refused when tapped, before the password, with "WPA3-only not
+supported"; WPA2/WPA3 networks connect normally.
+Initialization connects the same way and shows its own progress and result.
+
 Network names can contain characters absent from the build-time UI text. The
 Settings and initialization hosts map `dist/fallback-font.bin` read-only and add
 only the current scan, station and hotspot name glyphs to their small atlases.
 The font follows `FONT_REG`, includes its OFL license, and is prepared by
 `make fallback-font` (also part of `make assets`). Updating scan results replaces
 the extra character set rather than retaining every previously seen SSID.
+
+Text at sizes outside the baked slots uses `sizedFont(px, text)` from
+`@onekvm/screen-ui`. Every App's host rasterizes the requested characters at
+that size from the same face into slots 16–23 and returns the slot, line
+height, baseline and capital height for placing the Text box. Each App keeps
+eight sizes; a ninth reuses the least recently requested slot. Sizes from 4 to
+160 px are accepted. The home clocks draw their time and AM/PM this way at every
+scale; the large bold clock digits and flip clock stay images, because the
+flip animation squashes the digits. Without the host function (simulators)
+`sizedFont` returns `undefined` and the clocks use the baked 16 px slot.
 
 To update the Web page, run `pnpm install --frozen-lockfile`, `pnpm check:web`,
 and `pnpm build:web`. The build updates `packaging/onekvm/display-page.js`,
@@ -197,6 +237,25 @@ which the OE recipe installs with the screen service.
 make app    # shell + settings bundles → dist/ and dist/apps/settings/
 make host   # rustc → host-linux-fb/target/release/onekvm-screen-display
 ```
+
+Setup pages render to PNG without a panel through the host's QuickJS guest,
+layout and RGB565 rasterizer. Each panel size gets every welcome face, list
+step, keyboard and dialog. `settings_preview` renders the Settings Wi-Fi
+connection (list, password, connecting, failed, refused, connected, joined
+list), the same dialog after a network change, and a WPA3-only network next to
+a WPA2/WPA3 one.
+
+```sh
+make shell-app init-app settings-app fallback-font
+INIT_PREVIEW_OUT=/tmp/init-preview POCKETJS_DIST=$PWD/dist \
+    cargo test --manifest-path host-linux-fb/Cargo.toml _preview -- --ignored
+```
+
+`INIT_PREVIEW_PANELS` (`machine:WxH,...`) and `INIT_PREVIEW_LANGS`
+(`zh,zh_tw,en`) narrow the set; `POCKETJS_DIST` selects another bundle.
+`home_preview` renders each model home layout (`machine/variant:WxH`, such as
+`nanokvm-pro/Desk:320x172`) in a live and an idle state; the clock's sized text
+needs `fallback-font.bin` in `POCKETJS_DIST`.
 
 屏幕按需刷新与空闲等待的约束见 [power-management.md](docs/power-management.md)。
 
@@ -233,3 +292,9 @@ bridge 与 D-Bus 的 `rotate` 使用相对角度，`rotations` bridge key 和
 `panel_json.rotations` 分别供本地与网页读取选项。持久化 `rotate` 文件及机型的
 旧 `screen_display.rotate` 默认值保留物理角度，已有 270° 正向设置无需迁移；
 绘制与触摸转换始终使用物理角度，`panel_json` 的尺寸为当前逻辑尺寸。
+
+触摸默认按设备坐标的最大值线性映射到面板。触摸范围与面板不一致的机型可在
+`screen_display.touch_calibration` 写六个数 `[a, b, c, d, e, f]`（与 libinput
+校准矩阵相同）：设备坐标先按各轴最大值归一化到 0–1，再按
+`x' = a·x + b·y + c`、`y' = d·x + e·y + f` 换算到物理面板（旋转前），超出面板的
+位置贴边。格式不对时忽略并记录警告。

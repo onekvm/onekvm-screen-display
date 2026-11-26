@@ -5,14 +5,14 @@ import { createGesture } from "@pocketjs/framework/vue-vapor/gesture";
 import { onFrame } from "@pocketjs/framework/vue-vapor/lifecycle";
 import { OptionDrawer } from "../../apps/settings/src/Options";
 import { device, requestScrollTransition, screenSize, setHot } from "../shell/device";
-import { WifiSetupFace, parseWifiSetup, type WifiSetup } from "../shell/WifiSetupFace";
+import { WifiSetupFace, parseWifiSetup, type WifiSetup } from "./WifiSetupFace";
 import Keyboard from "../shell/Keyboard";
 import { FeedbackModal } from "../shell/FeedbackModal";
 import { StartupDialog, useStartupHealth } from "./StartupDialog";
 import { AdbDialog, useAdbDebug } from "./AdbDialog";
 import { DiagnosticsDialog, DiagnosticsTapSequence, type DiagnosticsState } from "./DiagnosticsDialog";
 import { drawerRow, knobRow, ListRow } from "../shell/ListRow";
-import { applyToken, backspace, layoutKeys, moveFocus, type KeyKind } from "../shell/keypad";
+import { applyToken, backspace, layoutKeys, moveFocus, nextKeyMode, type KeyKind } from "../shell/keypad";
 import { COLOR, FONT } from "../shell/ui";
 import { DRAWER_EXIT_MS } from "../shell/motion";
 import {
@@ -35,23 +35,27 @@ import {
   modeOptions,
   netBody,
   nextStep,
-  normalizeLang,
   pageRows,
   panScroll,
   parseScan,
   prevStep,
   resolveLinks,
   revealScroll,
+  setupLang,
   STEPS,
+  stepDots,
+  TITLE_X,
   titleOf,
   tzFilterChrome,
   tzFilterOptions,
-  welcomeContentWidth,
+  welcomeBottom,
   welcomeFaceIndex,
   welcomeFaceProgress,
   welcomeKnobFace,
   welcomeHintLines,
   welcomeLayout,
+  welcomePager,
+  welcomeSwipeFace,
   wifiBody,
   type Action,
   type Commit,
@@ -59,10 +63,6 @@ import {
   type PageState,
   type Step,
 } from "./flow";
-
-function readLang(): string {
-  return normalizeLang(device()?.get?.("language") || "en");
-}
 
 function LinkCard(props: { name: string; kind: string; ip: string; rowIndex: number; onPress: () => void }) {
   const line = props.ip ? `${props.kind}  ${props.ip}` : props.kind;
@@ -205,6 +205,7 @@ function SetupList(props: PageState & {
               tags={row.tags}
               icon={row.icon}
               rowIndex={index}
+              width={Math.max(40, props.width - 16)}
               onPress={() => props.onActivate(index)}
             />
           )}
@@ -243,13 +244,12 @@ function Welcome(props: { width: number; height: number; ip: string; lang: strin
   const setup = shallowRef<WifiSetup | null>(parseWifiSetup(device()?.get?.("wifiSetup") || ""));
   const page = shallowRef(0);
   const pages = () => (setup.value ? 2 : 1);
-  const boxW = () => welcomeContentWidth(props.width, pages());
+  // Faces span the panel; the page dots sit in a strip along the bottom edge.
+  const boxW = () => props.width;
+  const bottom = () => welcomeBottom(pages());
+  const pager = () => welcomePager({ w: props.width, h: props.height }, pages());
   const lay = () =>
-    welcomeLayout(
-      { w: boxW(), h: props.height },
-      props.ip !== "",
-      props.width > props.height ? "split" : "stack",
-    );
+    welcomeLayout({ w: boxW(), h: props.height }, props.ip !== "", undefined, bottom());
   const lines = () => welcomeHintLines(props.lang, props.ip, boxW());
   const hint = () => lay().hint;
   const slotA = shallowRef(copy(BUTTON_LANGS[0]).onDevice);
@@ -299,6 +299,21 @@ function Welcome(props: { width: number; height: number; ip: string; lang: strin
     shownFace = next;
     page.value = next;
   };
+  /** Knob, swipe and the page dots restart the countdown on the chosen face. */
+  const turnFace = (next: number, dir: 1 | -1) => {
+    faceOrigin = next;
+    faceStart = Date.now();
+    slideFaces(next, dir);
+  };
+  createGesture({
+    axis: "x",
+    panSlop: 12,
+    region: { rect: () => (pages() > 1 ? { x: 0, y: 0, w: props.width, h: props.height } : null) },
+    onPanEnd(c) {
+      const next = welcomeSwipeFace(shownFace, c.dx, c.dy, pages());
+      if (next !== null) turnFace(next, c.dx < 0 ? 1 : -1);
+    },
+  });
   const bindRing = (node: NodeMirror | null) => {
     if (!isMirror(node)) {
       if (ringNode && node == null) ringNode = null;
@@ -355,11 +370,7 @@ function Welcome(props: { width: number; height: number; ip: string; lang: strin
       knobSeen = seq;
       const delta = Number(device()?.get?.("knob") || "0");
       if (!first && delta && count > 1) {
-        const dir: 1 | -1 = delta > 0 ? 1 : -1;
-        const turned = welcomeKnobFace(shownFace, delta, count);
-        faceOrigin = turned;
-        faceStart = now;
-        slideFaces(turned, dir);
+        turnFace(welcomeKnobFace(shownFace, delta, count), delta > 0 ? 1 : -1);
       }
     }
     const nextFace = welcomeFaceIndex(faceOrigin, now - faceStart, count);
@@ -404,8 +415,8 @@ function Welcome(props: { width: number; height: number; ip: string; lang: strin
       moveUntil = now + BUTTON_FADE_MS;
     }
   });
-  const railTop = Math.max(8, Math.round((props.height - 44) / 2));
   const ap = () => setup.value;
+  const dotAt = (index: number) => pager().dots[index] || pager().dots[0];
   return (
     <View class="absolute overflow-hidden" style={{ insetL: 0, insetT: 0, width: props.width, height: props.height }}>
       <View
@@ -511,19 +522,24 @@ function Welcome(props: { width: number; height: number; ip: string; lang: strin
         class="absolute overflow-hidden"
         style={{ insetL: 0, insetT: 0, width: boxW(), height: props.height }}
       >
-        <WifiSetupFace setup={ap()!} lang={props.lang} width={boxW()} height={props.height} />
+        <WifiSetupFace setup={ap()!} lang={props.lang} width={boxW()} height={props.height} bottom={bottom()} />
       </View>
       ) : null}
       </View>
       {setup.value ? (
-      <View class="absolute" style={{ insetL: props.width - 28, insetT: 0, width: 28, height: props.height }}>
+      <View
+        class="absolute"
+        style={{ insetL: pager().hit.x, insetT: pager().hit.y, width: pager().hit.w, height: pager().hit.h }}
+        focusable
+        onPress={() => turnFace(welcomeKnobFace(shownFace, 1, pages()), 1)}
+      >
         <View
           class="absolute"
           style={{
-            insetL: 5,
-            insetT: railTop + page.value * 26,
-            width: 18,
-            height: 18,
+            insetL: dotAt(page.value).x - pager().hit.x - pager().ring / 2,
+            insetT: dotAt(page.value).y - pager().hit.y - pager().ring / 2,
+            width: pager().ring,
+            height: pager().ring,
             bgColor: 0xff5b5252,
             arcSweep: 360,
             arcWidth: 2,
@@ -533,38 +549,29 @@ function Welcome(props: { width: number; height: number; ip: string; lang: strin
           nodeRef={bindRing}
           class="absolute"
           style={{
-            insetL: 5,
-            insetT: railTop + page.value * 26,
-            width: 18,
-            height: 18,
+            insetL: dotAt(page.value).x - pager().hit.x - pager().ring / 2,
+            insetT: dotAt(page.value).y - pager().hit.y - pager().ring / 2,
+            width: pager().ring,
+            height: pager().ring,
             bgColor: COLOR.primary,
             arcStart: 0,
             arcSweep: 360,
             arcWidth: 3,
           }}
         />
-        <View
-          class="absolute"
-          style={{
-            insetL: 11,
-            insetT: railTop + 6,
-            width: 6,
-            height: 6,
-            radius: 3,
-            bgColor: page.value === 0 ? COLOR.primary : 0xff5b5252,
-          }}
-        />
-        <View
-          class="absolute"
-          style={{
-            insetL: 11,
-            insetT: railTop + 32,
-            width: 6,
-            height: 6,
-            radius: 3,
-            bgColor: page.value === 1 ? COLOR.primary : 0xff5b5252,
-          }}
-        />
+        {pager().dots.map((dot, index) => (
+          <View
+            class="absolute"
+            style={{
+              insetL: dot.x - pager().hit.x - pager().dot / 2,
+              insetT: dot.y - pager().hit.y - pager().dot / 2,
+              width: pager().dot,
+              height: pager().dot,
+              radius: pager().dot / 2,
+              bgColor: page.value === index ? COLOR.primary : 0xff5b5252,
+            }}
+          />
+        ))}
       </View>
       ) : null}
     </View>
@@ -575,7 +582,7 @@ export default function Init() {
   const startup = useStartupHealth();
   const adb = useAdbDebug();
   const step = shallowRef<Step>("welcome");
-  const lang = shallowRef(readLang());
+  const lang = shallowRef(setupLang());
   const tzFilter = shallowRef("all");
   const focus = shallowRef(0);
   const advanced = shallowRef(false);
@@ -819,7 +826,7 @@ export default function Init() {
 
   const run = (action: Action) => {
     if (action.type === "language") {
-      lang.value = action.id;
+      lang.value = setupLang(action.id);
       device()?.set?.("language", action.id);
       step.value = "blank";
       focus.value = 0;
@@ -902,6 +909,11 @@ export default function Init() {
       startWifi(action.ssid, action.password);
       return;
     }
+    if (action.type === "alert") {
+      if (busy.value) return;
+      error.value = action.code;
+      return;
+    }
     if (action.type === "apply") {
       if (busy.value) return;
       const nfs = nfsOn.value || device()?.get?.("nfs") === "1";
@@ -977,7 +989,7 @@ export default function Init() {
     const applied = applyToken(kbValue.value, token, kbMax.value);
     if (applied.action === "mode") {
       if (kb.value === "text") {
-        kbMode.value = (kbMode.value + 1) % 3;
+        kbMode.value = nextKeyMode(kbMode.value, { w: scrW.value, h: scrH.value });
         kbFocus.value = 0;
       }
       return;
@@ -1297,9 +1309,9 @@ export default function Init() {
       <Text
         class="absolute text-base"
         style={{
-          insetL: 8,
+          insetL: TITLE_X,
           insetT: 4,
-          insetR: 8,
+          insetR: stepDots(step.value, scrW.value).right,
           fontSlot: FONT.base,
           textColor: COLOR.zinc100,
         }}
@@ -1314,6 +1326,21 @@ export default function Init() {
         )}
       </Text>
       ) : null}
+      {step.value !== "welcome"
+        ? stepDots(step.value, scrW.value).dots.map((dot) => (
+          <View
+            class="absolute"
+            style={{
+              insetL: dot.x - 3,
+              insetT: dot.y - 3,
+              width: 6,
+              height: 6,
+              radius: 3,
+              bgColor: dot.state === "current" ? COLOR.primary : dot.state === "done" ? COLOR.zinc400 : 0xff46463f,
+            }}
+          />
+        ))
+        : null}
       {step.value === "timezone" ? (
       <View
         class="absolute"
@@ -1327,6 +1354,7 @@ export default function Init() {
         <ListRow
           title={tzFilterChrome(lang.value, tzFilter.value).title}
           value={tzFilterChrome(lang.value, tzFilter.value).value}
+          width={Math.max(40, scrW.value - 16)}
           onPress={() => openDrawer("tz")}
         />
       </View>

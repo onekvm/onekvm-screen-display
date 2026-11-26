@@ -17,8 +17,8 @@ import { LIST_ROW_H } from "../../../src/shell/listMetrics";
 import { INPUT_HOLD_FRAMES } from "../../../src/shell/motion";
 import Keyboard from "../../../src/shell/Keyboard";
 import { FeedbackModal } from "../../../src/shell/FeedbackModal";
-import { applyToken, layoutKeys, moveFocus, type KeyKind } from "../../../src/shell/keypad";
-import { apTags, blankLabel, networkApplyError, parseAps, parseLinks, wireBody, type Ap, type Nic } from "./net";
+import { applyToken, layoutKeys, moveFocus, nextKeyMode, type KeyKind } from "../../../src/shell/keypad";
+import { apTags, blankLabel, isWifiJoinError, networkApplyError, parseAps, parseLinks, wifiJoinError, wireBody, type Ap, type Nic } from "./net";
 import { SETTINGS_ASSETS } from "./assets";
 import { settleTouchScroll } from "../../../src/shared/touchScroll";
 import { RecoveryDebug } from "./RecoveryDebug";
@@ -222,11 +222,16 @@ export default function Settings() {
   const dns = shallowRef("");
   const vlan = shallowRef("");
   const netError = shallowRef("");
-  const netState = shallowRef<"idle" | "applying" | "applied" | "failed">("idle");
+  // "notice" reports a network that is not tried at all; it only closes.
+  const netState = shallowRef<"idle" | "applying" | "applied" | "failed" | "notice">("idle");
   const netDialogFocus = shallowRef(0);
   let netStartedAt = 0;
   let netSawBusy = false;
   let lastNetworkApply: { key: string; body: string } | null = null;
+  // The open dialog reports either a network apply or a Wi-Fi connection.
+  const netKind = shallowRef<"network" | "wifi">("network");
+  const joining = shallowRef<{ ssid: string; secure: boolean } | null>(null);
+  let joinPassword = "";
   const scanBusy = shallowRef(false);
   const kb = shallowRef<KbKind>("");
   const kbValue = shallowRef("");
@@ -336,11 +341,12 @@ export default function Settings() {
     else if (id === "vlan") openKb("number", "vlan", vlan.value);
   };
 
-  const submitNetwork = (key: string, body: string) => {
+  const submitNetwork = (key: string, body: string, kind: "network" | "wifi" = "network") => {
     if (netState.value === "applying") return;
     lastNetworkApply = { key, body };
+    netKind.value = kind;
     netDialogFocus.value = 0;
-    if (device()?.get?.("nfs") === "1") {
+    if (kind === "network" && device()?.get?.("nfs") === "1") {
       netError.value = t("nfs", {}, lang.value);
       netState.value = "failed";
       setHot(true);
@@ -354,8 +360,36 @@ export default function Settings() {
     setHot(true);
   };
 
+  const joinAp = (ap: Ap) => {
+    if (netState.value !== "idle") return;
+    if (ap.security === "wpa3") {
+      // Core joins protected networks over WPA-PSK, which SAE-only networks refuse.
+      netKind.value = "wifi";
+      netDialogFocus.value = 0;
+      netError.value = t("wifiWpa3Only", {}, lang.value);
+      netState.value = "notice";
+      setHot(true);
+    } else if (ap.secure) openKb("text", "wifi", ap.ssid);
+    else connectWifi(ap.ssid, "", false);
+  };
+
+  const connectWifi = (ssid: string, password: string, secure: boolean) => {
+    joining.value = { ssid, secure };
+    joinPassword = password;
+    submitNetwork("wifiConnect", JSON.stringify({ ssid, password }), "wifi");
+  };
+
   const retryNetwork = () => {
-    if (lastNetworkApply) submitNetwork(lastNetworkApply.key, lastNetworkApply.body);
+    const join = joining.value;
+    if (netKind.value === "wifi" && join?.secure) {
+      // Show the password again so it can be checked before reconnecting.
+      const password = joinPassword;
+      dismissNetwork();
+      openKb("text", "wifi", join.ssid);
+      kbValue.value = password;
+      return;
+    }
+    if (lastNetworkApply) submitNetwork(lastNetworkApply.key, lastNetworkApply.body, netKind.value);
   };
 
   const applyWire = () => {
@@ -392,6 +426,11 @@ export default function Settings() {
     if (netState.value === "applying") return;
     netState.value = "idle";
     netError.value = "";
+    if (netKind.value === "wifi") {
+      lastNetworkApply = null;
+      joining.value = null;
+      joinPassword = "";
+    }
     setHot(true);
   };
 
@@ -550,7 +589,14 @@ export default function Settings() {
       else if (netSawBusy || Date.now() - netStartedAt >= 800) {
         const error = device()?.get?.("setupError") || "";
         netState.value = error ? "failed" : "applied";
-        netError.value = networkApplyError(error, lang.value);
+        const join = joining.value;
+        netError.value = netKind.value === "wifi" ? wifiJoinError(error, !!join?.secure, lang.value) : networkApplyError(error, lang.value);
+        if (!error && netKind.value === "wifi" && join) {
+          aps.value = aps.value.map((ap) => ({ ...ap, connected: ap.ssid === join.ssid }));
+          joinPassword = "";
+        }
+        // Refresh the list, which marks the network now in use.
+        if (netKind.value === "wifi" && page.value === "wifi") device()?.set?.("wifiScan", "1");
         if (!error && page.value === "hotspot") { hotspot.sync(); hotspot.edit("password", ""); }
       }
     }
@@ -763,7 +809,7 @@ export default function Settings() {
     const applied = applyToken(kbValue.value, token, max);
     if (applied.action === "mode") {
       if (kb.value === "text") {
-        kbMode.value = (kbMode.value + 1) % 3;
+        kbMode.value = nextKeyMode(kbMode.value, screenSize());
         kbFocus.value = 0;
       }
       return;
@@ -786,8 +832,7 @@ export default function Settings() {
       return;
     }
     if (target === "wifi" && ssid) {
-      device()?.set?.("wifiConnect", JSON.stringify({ ssid, password: value }));
-      setHot(true);
+      connectWifi(ssid, value, true);
       return;
     }
     netError.value = "";
@@ -939,8 +984,7 @@ export default function Settings() {
         device()?.set?.("wifiScan", "1");
         return;
       }
-      if (ap.secure) openKb("text", "wifi", ap.ssid);
-      else device()?.set?.("wifiConnect", JSON.stringify({ ssid: ap.ssid, password: "" }));
+      joinAp(ap);
       return;
     }
     if (page.value === "display") {
@@ -1222,7 +1266,7 @@ export default function Settings() {
                   ? t("scanning", {}, lang.value)
                   : device()?.get?.("wifi") === "0"
                     ? t("nowifi", {}, lang.value)
-                    : device()?.get?.("setupError")
+                    : device()?.get?.("setupError") && !isWifiJoinError(device()?.get?.("setupError") || "")
                       ? t("scanFailed", {}, lang.value)
                       : t("noNetworks", {}, lang.value)
               }
@@ -1237,10 +1281,7 @@ export default function Settings() {
                 title={ap.ssid}
                 tags={apTags(ap, lang.value, wifiGeneration.value)}
                 rowIndex={index}
-                onPress={() => {
-                  if (ap.secure) openKb("text", "wifi", ap.ssid);
-                  else device()?.set?.("wifiConnect", JSON.stringify({ ssid: ap.ssid, password: "" }));
-                }}
+                onPress={() => joinAp(ap)}
               />
             ))
           )}
@@ -1519,10 +1560,15 @@ export default function Settings() {
           width={screenSize().w}
           height={screenSize().h}
           busy={netState.value === "applying"}
-          title={t(netState.value === "applying" ? "applying" : netState.value === "applied" ? "applied" : "applyFailed", {}, lang.value)}
-          message={netState.value === "applying" ? t("networkSaving", {}, lang.value) : netState.value === "applied" ? t("networkSaved", {}, lang.value) : netError.value}
+          title={netState.value === "notice" ? undefined
+            : netKind.value === "wifi"
+            ? t(netState.value === "applying" ? "wifiConnecting" : netState.value === "applied" ? "wifiOk" : "wifiFailed", {}, lang.value)
+            : t(netState.value === "applying" ? "applying" : netState.value === "applied" ? "applied" : "applyFailed", {}, lang.value)}
+          message={netState.value === "failed" || netState.value === "notice" ? netError.value
+            : netKind.value === "wifi" ? joining.value?.ssid || ""
+            : t(netState.value === "applying" ? "networkSaving" : "networkSaved", {}, lang.value)}
           primary={{ label: t(netState.value === "failed" ? "retry" : "confirm", {}, lang.value), onPress: () => netState.value === "failed" ? retryNetwork() : dismissNetwork() }}
-          secondary={netState.value === "failed" ? { label: t("editNetwork", {}, lang.value), onPress: dismissNetwork } : undefined}
+          secondary={netState.value === "failed" ? { label: t(netKind.value === "wifi" ? "cancel" : "editNetwork", {}, lang.value), onPress: dismissNetwork } : undefined}
           rotary={hasRotary.value}
           focus={netDialogFocus.value}
         />

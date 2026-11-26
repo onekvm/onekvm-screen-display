@@ -1,28 +1,21 @@
 import { computed } from "vue";
-import { Image } from "@pocketjs/framework/vue-vapor/components";
-import type { ClockParts } from "./clock";
+import { Text } from "@pocketjs/framework/vue-vapor/components";
+import { clockFont, dashboardClockLayout, type ClockParts } from "./clock";
 import type { HomeLayout } from "./homeLayout";
 import { screenSize } from "./device";
-import { ClockPeriod } from "./ClockPeriod";
+import { COLOR } from "./ui";
 import { DASHBOARD_CLOCK } from "../shared/dashboard";
 
-const images = [
-  "dashboard-clock-0.png", "dashboard-clock-1.png", "dashboard-clock-2.png",
-  "dashboard-clock-3.png", "dashboard-clock-4.png", "dashboard-clock-5.png",
-  "dashboard-clock-6.png", "dashboard-clock-7.png", "dashboard-clock-8.png",
-  "dashboard-clock-9.png", "dashboard-clock-colon.png",
-];
-
-// Bitmap text transforms move glyphs without resizing them. Images resize both.
+// The host rasterizes the clock's font at 16 px x scale, so every size is
+// drawn 1:1 instead of scaling a bitmap.
 export function DashboardClock(props: { clock: ClockParts; home: HomeLayout }) {
   const scr = screenSize();
-  const time = computed(() => `${props.clock.hh}:${props.clock.mm}`);
-  return <>{[0, 9, 18, 22, 31].map((offset, index) => <Image class="absolute"
-    src={images[index === 2 ? 10 : Number(time.value[index])]}
-    style={{
-      width: 16 * props.home.clock.scale, height: 32 * props.home.clock.scale,
-      insetL: scr.w * props.home.clock.x / 100 + (offset + DASHBOARD_CLOCK.width / 2 - 40.5) * props.home.clock.scale,
-      insetT: scr.h * props.home.clock.y / 100 - 16 * props.home.clock.scale,
-    }}
-  />)}<ClockPeriod period={props.clock.period} x={scr.w * props.home.clock.x / 100 + (DASHBOARD_CLOCK.width / 2 - 50.75 - DASHBOARD_CLOCK.periodGap) * props.home.clock.scale} y={scr.h * props.home.clock.y / 100} scale={props.home.clock.scale} /></>;
+  const font = computed(() => clockFont(DASHBOARD_CLOCK.fontSize * props.home.clock.scale));
+  const layout = computed(() => dashboardClockLayout(
+    scr.w * props.home.clock.x / 100, scr.h * props.home.clock.y / 100, props.home.clock.scale, font.value,
+  ));
+  return <>
+    <Text class="absolute" style={{ ...layout.value.time, fontSlot: font.value.slot, textColor: COLOR.white }}>{props.clock.hh}:{props.clock.mm}</Text>
+    {props.clock.period && <Text class="absolute" style={{ ...layout.value.period, fontSlot: font.value.slot, textColor: COLOR.white, textAlign: 1 }}>{props.clock.period}</Text>}
+  </>;
 }

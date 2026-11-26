@@ -16,7 +16,7 @@ const MAX_CHARS: usize = 1024;
 const MAX_VALUE_CHARS: usize = 8192;
 static FONT: OnceLock<Option<Mmap>> = OnceLock::new();
 
-fn font() -> Option<Face<'static>> {
+pub(crate) fn font() -> Option<Face<'static>> {
     let bytes = FONT
         .get_or_init(|| {
             for root in crate::dist_roots() {
@@ -132,23 +132,15 @@ fn rasterize(face: &Face<'_>, base: &Atlas, ch: char) -> Option<Glyph> {
     if width > 255 || height > 255 {
         return None;
     }
-    let (w, h) = (
+    let pixels = coverage(
+        face,
+        gid,
         width as usize * base.raster_density as usize,
         height as usize * base.raster_density as usize,
-    );
-    let mut outline = Outline {
-        raster: Rasterizer::new(w, h),
-        scale: scale * density,
-        xoff: xoff * density,
-        baseline: base.baseline as f32 * density,
-        start: point(0., 0.),
-        last: point(0., 0.),
-    };
-    face.outline_glyph(gid, &mut outline)?;
-    let mut pixels = vec![0; w * h];
-    outline
-        .raster
-        .for_each_pixel(|i, coverage| pixels[i] = (coverage.clamp(0., 1.) * 255.).round() as u8);
+        scale * density,
+        xoff * density,
+        base.baseline as f32 * density,
+    )?;
     Some(Glyph {
         width,
         height,
@@ -160,6 +152,34 @@ fn rasterize(face: &Face<'_>, base: &Atlas, ch: char) -> Option<Glyph> {
         xoff: xoff.min(255.) as u8,
         pixels,
     })
+}
+
+/// 8-bit coverage of `gid` in a `w` x `h` raster. Font units scale by
+/// `scale`; the pen origin sits `xoff` samples right of the left edge on row
+/// `baseline`. None for a glyph without an outline.
+pub(crate) fn coverage(
+    face: &Face<'_>,
+    gid: ttf_parser::GlyphId,
+    w: usize,
+    h: usize,
+    scale: f32,
+    xoff: f32,
+    baseline: f32,
+) -> Option<Vec<u8>> {
+    let mut outline = Outline {
+        raster: Rasterizer::new(w, h),
+        scale,
+        xoff,
+        baseline,
+        start: point(0., 0.),
+        last: point(0., 0.),
+    };
+    face.outline_glyph(gid, &mut outline)?;
+    let mut pixels = vec![0; w * h];
+    outline
+        .raster
+        .for_each_pixel(|i, coverage| pixels[i] = (coverage.clamp(0., 1.) * 255.).round() as u8);
+    Some(pixels)
 }
 
 struct Outline {

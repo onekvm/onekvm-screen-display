@@ -7,7 +7,8 @@ export function homeStatusStyle(placement: { status_style?: unknown; status_acti
   return placement.status_active_image || placement.status_inactive_image ? 'image' : 'text'
 }
 
-export const MAX_HOME_WIDGET_WIDTH = 240
+// Widest panel: NanoKVM Pro Desk, 320 px in landscape.
+export const MAX_HOME_WIDGET_WIDTH = 320
 export const MAX_HOME_WIDGET_HEIGHT = 120
 
 export function homeWidgetSize(kind: HomeWidgetKind, placement: { width?: number; height?: number }) {

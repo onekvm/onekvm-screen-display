@@ -9,12 +9,12 @@ import { __packTouch } from "../../tmp/pocketjs/framework/src/touch";
 const apps = Array.from({ length: 14 }, (_, i) => ({ id: `app-${i}`, title: `App ${i}`, icon: "settings.png", controls: ["rotary", "touch"] }));
 const keys = new Map(Object.entries({ screenW: "320", screenH: "172", appView: "icons", apps: JSON.stringify(apps), appsGen: "1", controls: '["rotary","touch"]', knobOn: "1", touchOn: "1", shellPage: "0", shellCapturePage: "-1", knobSeq: "0", language: "en", layout: "{}" }));
 const sets: number[][] = [], tweens: number[][] = [];
-let id = 2, seq = 0;
+let id = 2, seq = 0, layoutReads = 0;
 const noop = () => {};
-const ops = { createNode: () => id++, destroyNode: noop, insertBefore: noop, removeChild: noop, setStyle: noop, setText: noop, replaceText: noop, setImage: noop, setSprite: noop, uploadTexture: () => 1, setFocus: noop, setActive: noop, measureText: () => 8, __textures: {},
+const ops = { createNode: () => id++, destroyNode: noop, insertBefore: noop, removeChild: noop, setStyle: noop, setText: noop, replaceText: noop, setImage: noop, setSprite: noop, uploadTexture: () => 1, freeTexture: noop, setFocus: noop, setActive: noop, measureText: () => 8, __textures: {},
   setProp: (...args: number[]) => { sets.push(args); }, animate: (...args: number[]) => { tweens.push(args); return tweens.length; }, cancelAnim: noop };
 (globalThis as any).ui = ops;
-(globalThis as any).onekvm = { get: (key: string) => keys.get(key) || "", set: (key: string, value: string) => {
+(globalThis as any).onekvm = { get: (key: string) => { if (key === "layout") layoutReads++; return keys.get(key) || ""; }, set: (key: string, value: string) => {
   if (key === "shellPage" && value === "1" && keys.get("appListAuthorized") === "0") { keys.set("launch", "settings"); return; }
   keys.set(key, value);
 } };
@@ -67,6 +67,33 @@ keys.set("hot", "1"); await settle();
 assert.equal(keys.get("hot"), "0", "a native status wake left the idle launcher hot");
 for (let n = 0; n < 25; n++) await frame();
 assert.equal(keys.get("hot"), "0", "settled icons left the hot loop running");
+const originalNow = Date.now;
+let simulatedNow = 12345;
+Date.now = () => simulatedNow;
+try {
+  keys.set("shellPage", "0");
+  keys.set("layout", JSON.stringify({ face: "screen-display/minimal", clock_enabled: true, home_widgets: [] }));
+  keys.set("homeGen", "minute");
+  await settle();
+  assert.equal(keys.get("shellFrameAfter"), "47655");
+  const reads = layoutReads;
+  for (let count = 0; count < 3; count++) { simulatedNow += 1000; await frame(); }
+  assert.equal(layoutReads, reads, "unchanged home settings were polled on an invisible second");
+  const delay = keys.get("shellFrameAfter");
+  keys.set("shellCapturePage", "1"); await settle();
+  assert.equal(keys.get("shellFrameAfter"), delay, "cache capture cancelled the home deadline");
+  keys.set("shellCapturePage", "-1");
+  keys.set("layout", JSON.stringify({ face: "screen-display/classic", clock_enabled: true, home_widgets: [] }));
+  keys.set("homeGen", "ticks");
+  await settle();
+  assert.equal(keys.get("shellFrameAfter"), "655");
+  keys.set("layout", JSON.stringify({ face: "screen-display/classic", clock_enabled: false, home_widgets: [] }));
+  keys.set("homeGen", "hidden");
+  await settle();
+  assert.equal(keys.get("shellFrameAfter"), "0");
+  keys.set("shellPage", "1"); await settle();
+  assert.equal(keys.get("shellFrameAfter"), "0", "launcher requested an invisible clock frame");
+} finally { Date.now = originalNow; }
 function inspect(node: any) { assert.ok(!String(node.domAttrs?.class || "").includes("duration-160"), "icon highlight can freeze midway"); node.children.forEach(inspect); }
 inspect(rootMirror);
 console.log("Shell icons: multi-page rotary, burst/reversal, cache refresh, reorder/shrink, turn+click, lock, touch and idle passed");

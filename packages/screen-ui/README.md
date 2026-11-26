@@ -7,6 +7,7 @@ SDK source or depend on another App's files.
 | Module | Responsibility / contract |
 | --- | --- |
 | `theme` | One ABGR palette and baked font-slot map for shell and Apps |
+| `sizedFont` | Request a font slot at any pixel size for the given characters, with the baseline and capital height for placing the Text box |
 | `useRotary` | Decode new host events into turn, confirm and back callbacks; a hold takes precedence over a click |
 | `useActions` | Own selection, wrap detents and route touch/confirm to one indexed action callback |
 | `ActionBar` | Render `{id, label}` items, selection and `onAction(index)` |
@@ -53,7 +54,7 @@ Use the exported `BackButton` (44px wide, configurable header height,
 The button cancels taps when dragged and clears rotary highlighting when
 selection moves away. HDMI loopback and service Apps use this same component.
 Built-in Power composes `AppHeader`, `StatusCard`, `ActionBar` and `useActions`;
-ATX LED details use the card's optional `detail` line. Settings uses `AppTitle`
+PWR/HDD LED details use the card's optional `detail` line. Settings uses `AppTitle`
 and `BackButton` while retaining its compact header and hierarchical navigation.
 An error replaces the optional detail line to keep compact cards within their bounds.
 

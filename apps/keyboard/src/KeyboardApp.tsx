@@ -7,7 +7,7 @@ import { COLOR } from "../../../packages/screen-ui/src/theme";
 import { useActions } from "../../../packages/screen-ui/src/useActions";
 import { ScrollList, type ScrollListRow } from "../../../src/shell/ScrollList";
 import SoftKeyboard from "../../../src/shell/Keyboard";
-import { applyToken, layoutKeys } from "../../../src/shell/keypad";
+import { applyToken, layoutKeys, nextKeyMode } from "../../../src/shell/keypad";
 import { useLocalControl } from "../../shared/useLocalControl";
 import { useControlStrings } from "../../shared/controlStrings";
 import { commonKeys, shortcuts, lockKeys } from "./commands";
@@ -53,7 +53,7 @@ export default function KeyboardApp() {
     const next = applyToken(typed.value, value, 256);
     if (next.action === "ok") { draft.value = next.value; edit.value = false; actions.selected.value = 1; }
     else if (next.action === "cancel") { edit.value = false; actions.selected.value = 0; }
-    else if (next.action === "mode") { mode.value = (mode.value + 1) % 3; actions.selected.value = 0; }
+    else if (next.action === "mode") { mode.value = nextKeyMode(mode.value, screen); actions.selected.value = 0; }
     else typed.value = next.value;
   }
   const backIndex = () => page.value === "text" ? 3 : rows.value.length + 1;

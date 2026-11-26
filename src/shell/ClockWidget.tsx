@@ -59,6 +59,6 @@ export function ClockWidget(props: { clock: ClockParts; home: HomeLayout }) {
       </Text>
     </View>
     {props.home.face.id === "screen-display/flip" ? <FlipClock clock={props.clock} home={props.home} /> : digits}
-    <ClockPeriod period={props.clock.period} x={centerX.value - (props.home.face.id === "screen-display/flip" ? 114 : 91) * scale.value} y={centerY.value + (props.home.face.id === "screen-display/flip" ? 3 : 8) * scale.value} scale={scale.value * 0.75} />
+    <ClockPeriod period={props.clock.period} x={centerX.value - (props.home.face.id === "screen-display/flip" ? 114 : 91) * scale.value} y={centerY.value + (props.home.face.id === "screen-display/flip" ? 3 : 8) * scale.value} px={12 * scale.value} />
   </>;
 }

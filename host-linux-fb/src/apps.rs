@@ -116,12 +116,20 @@ pub fn policy(id: &str) -> crate::app_rpc::Policy {
     policy
 }
 
+/// Identify a bundle by its files' inode, size and timestamps. Packages replace
+/// bundle files atomically, so any update yields a new inode. Reading the
+/// contents here would pull every installed App into the page cache, which is
+/// charged to the screen service on every catalog refresh.
 pub fn bundle_revision(dir: &Path) -> u64 {
+    use std::os::unix::fs::MetadataExt;
     let mut digest = std::collections::hash_map::DefaultHasher::new();
     dir.hash(&mut digest);
     for name in ["main.vue-vapor.js", "main.vue-vapor.pak", "main.vue-vapor.jsc", "main.vue-vapor.jsc.abi", "main.vue-vapor.jsc.meta"] {
         name.hash(&mut digest);
-        fs::read(dir.join(name)).ok().hash(&mut digest);
+        fs::metadata(dir.join(name))
+            .ok()
+            .map(|meta| (meta.dev(), meta.ino(), meta.len(), meta.mtime(), meta.mtime_nsec(), meta.ctime(), meta.ctime_nsec()))
+            .hash(&mut digest);
     }
     digest.finish()
 }
@@ -532,7 +540,9 @@ mod tests {
         fs::write(root.join("main.vue-vapor.pak"),b"resources").unwrap();
         fs::write(root.join("main.vue-vapor.jsc"),b"old").unwrap();
         let before = bundle_revision(&root);
-        fs::write(root.join("main.vue-vapor.jsc"),b"new").unwrap();
+        // Package updates replace files atomically.
+        fs::write(root.join("main.vue-vapor.jsc.next"),b"new").unwrap();
+        fs::rename(root.join("main.vue-vapor.jsc.next"),root.join("main.vue-vapor.jsc")).unwrap();
         assert_ne!(before,bundle_revision(&root));
         fs::remove_dir_all(root).unwrap();
     }

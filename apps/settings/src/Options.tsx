@@ -1,9 +1,10 @@
+import { computed } from "vue";
 import { Image, Text, View, type NodeMirror } from "@pocketjs/framework/vue-vapor/components";
 import { jump } from "@pocketjs/framework/vue-vapor/animation";
 import { createGesture } from "@pocketjs/framework/vue-vapor/gesture";
 import { onFrame } from "@pocketjs/framework/vue-vapor/lifecycle";
 import { requestDrawerTransition, screenSize, setHot } from "./device";
-import { drawerRow, knobRow } from "../../../src/shell/ListRow";
+import { drawerRow, knobRow, LIST_INSET, rowTexts } from "../../../src/shell/ListRow";
 import { LIST_ROW_GAP, LIST_ROW_H } from "../../../src/shell/listMetrics";
 import { COLOR, FONT } from "./ui";
 
@@ -57,6 +58,12 @@ export function OptionRow(props: {
   rowIndex: number;
   onPress: () => void;
 }) {
+  const texts = computed(() => rowTexts({
+    width: screenSize().w - LIST_INSET,
+    icon: !!props.icon,
+    title: props.title,
+    value: props.value,
+  }));
   return (
     <View
       class={
@@ -81,7 +88,7 @@ export function OptionRow(props: {
           class="text-base leading-6 text-white transition-colors duration-96 ease-out"
           style={{ fontSlot: FONT.base, textColor: COLOR.white }}
         >
-          {props.title}
+          {texts.value.title}
         </Text>
       </View>
       <Text
@@ -91,7 +98,7 @@ export function OptionRow(props: {
           textColor: props.rowIndex === knobRow.value ? COLOR.white : COLOR.zinc400,
         }}
       >
-        {props.value}
+        {texts.value.value}
       </Text>
     </View>
   );

@@ -10,7 +10,9 @@ ONEKVM_COMPONENT_SRCREV ??= ""
 SRC_URI = "${ONEKVM_COMPONENT_GIT_URI}"
 SRCREV = "${ONEKVM_COMPONENT_SRCREV}"
 
-inherit cargo onekvm-cargo-cache systemd
+inherit cargo onekvm-cargo-cache systemd qemu siteinfo
+
+DEPENDS:append = " qemu-native"
 
 CARGO_SRC_DIR = "host-linux-fb"
 CARGO_DISABLE_BITBAKE_VENDORING = "1"
@@ -59,10 +61,6 @@ COMPATIBLE_MACHINE = "^(onekvm-picokvm|onekvm-nanokvm-pro|onekvm-nanokvm-go)$"
 PACKAGE_ARCH = "${MACHINE_ARCH}"
 
 HOST_BIN = "${B}/target/${CARGO_TARGET_SUBDIR}/onekvm-screen-display"
-HOST_BIN:onekvm-picokvm = "${S}/host-linux-fb/target/armv7-unknown-linux-musleabihf/release/onekvm-screen-display"
-do_compile:onekvm-picokvm() {
-    :
-}
 
 do_install() {
     ${PYTHON} ${S}/scripts/check_bundles.py ${S}/dist
@@ -108,6 +106,13 @@ do_install() {
     install -m 0644 ${S}/packaging/onekvm/launcher.json ${screen_dist}/launcher.json
     cp -a ${S}/dist/chrome/. ${screen_dist}/chrome/
     cp -a ${S}/dist/apps/. ${screen_dist}/apps/
+    cd ${screen_dist}
+    for source in $(find . -name main.vue-vapor.js -type f); do
+        ${@qemu_wrapper_cmdline(d, d.getVar('RECIPE_SYSROOT'), [d.getVar('RECIPE_SYSROOT') + d.getVar('libdir'), d.getVar('RECIPE_SYSROOT') + d.getVar('base_libdir')])} ${HOST_BIN} compile \
+            "$source" "${source%.js}.jsc"
+    done
+    ${PYTHON} ${S}/scripts/check_bundles.py ${screen_dist} \
+        "pocketjs/qjs-0.12.2/${SITEINFO_BITS}-${SITEINFO_ENDIANNESS}"
     if [ -d ${S}/dist/icons ]; then
         cp -a ${S}/dist/icons/. ${screen_dist}/icons/
     fi
@@ -121,8 +126,11 @@ INSANE_SKIP:${PN} += "already-stripped"
 
 RDEPENDS:${PN} += "dbus onekvm-adb-debug"
 RDEPENDS:${PN}:append:onekvm-picokvm = " onekvm-machine-picokvm"
-# Pro has migrated to the device plugin; replace the old framebuffer renderer
-# when upgrading an existing system as well as when building a new image.
+# Pro and PicoKVM have migrated to the device plugin; replace the old
+# framebuffer renderer when upgrading an existing system as well as when
+# building a new image. Both would draw to the same framebuffer.
 RCONFLICTS:${PN}:append:onekvm-nanokvm-pro = " onekvm-extension-screen-display"
 RREPLACES:${PN}:append:onekvm-nanokvm-pro = " onekvm-extension-screen-display"
+RCONFLICTS:${PN}:append:onekvm-picokvm = " onekvm-extension-screen-display"
+RREPLACES:${PN}:append:onekvm-picokvm = " onekvm-extension-screen-display"
 FILES:${PN} += "${libexecdir}/onekvm ${datadir}/dbus-1 ${datadir}/onekvm"

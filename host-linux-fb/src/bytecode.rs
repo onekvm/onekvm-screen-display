@@ -8,6 +8,8 @@ use std::{
 };
 
 /// Validate source identity without retaining/decoding the entire JS string.
+/// Packaged bytecode means the source is only hashed, so its pages are dropped
+/// from the page cache afterwards instead of staying charged to the service.
 pub fn source_digest(path: &Path) -> io::Result<String> {
     let mut file = fs::File::open(path)?;
     let mut hash = Sha256::new();
@@ -18,6 +20,11 @@ pub fn source_digest(path: &Path) -> io::Result<String> {
             break;
         }
         hash.update(&chunk[..len]);
+    }
+    #[cfg(target_os = "linux")]
+    unsafe {
+        use std::os::fd::AsRawFd;
+        libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED);
     }
     Ok(format!("{:x}", hash.finalize()))
 }

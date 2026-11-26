@@ -397,7 +397,7 @@ mod tests {
     impl FakeStatus {
         fn get_state(&self) -> String {
             self.0.fetch_add(1, Ordering::SeqCst);
-            r#"{"video":{"actual_fps":1},"atx":{"power":false},"system":{}}"#.into()
+            r#"{"video":{"actual_fps":1},"power":{"available":true,"pwr_led":false},"system":{}}"#.into()
         }
         fn get_resources(&self) -> String {
             self.1.fetch_add(1, Ordering::SeqCst);
@@ -442,7 +442,7 @@ mod tests {
         until(|| shared.get_key("system").contains("12.5"));
         fake.emit_signal(None::<&str>, "/org/onekvm/Core1/Status", "org.onekvm.Core1.Status", "ResourcesChanged", &(r#"{"cpu_percent":80.0,"memory_total_bytes":100,"memory_used_bytes":50}"#,)).unwrap();
         until(|| shared.get_key("system").contains("80.0"));
-        fake.emit_signal(None::<&str>, "/org/onekvm/Core1/Status", "org.onekvm.Core1.Status", "StateChanged", &(r#"{"video":{"actual_fps":2},"atx":{"power":true},"system":{}}"#,)).unwrap();
+        fake.emit_signal(None::<&str>, "/org/onekvm/Core1/Status", "org.onekvm.Core1.Status", "StateChanged", &(r#"{"video":{"actual_fps":2},"power":{"available":true,"pwr_led":true},"system":{}}"#,)).unwrap();
         until(|| shared.get_key("system").contains("true"));
         assert!(shared.get_key("system").contains("80.0"));
         fake.emit_signal(None::<&str>, "/org/onekvm/Core1/Status", "org.onekvm.Core1.Status", "FPSChanged", &(42i32,)).unwrap();

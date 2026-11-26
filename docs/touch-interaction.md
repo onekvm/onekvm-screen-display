@@ -41,6 +41,40 @@ or cancellation removes the highlight. Only fresh rotary input shows the
 rotary cursor again, starting at the last touched key. Password visibility
 is part of the same focus order.
 
+The keyboard keeps a header of at least 38 px (more on panels with rounded
+corners, see below) for the field name above the typed text, followed by a
+caret. When the text is wider than the field, the
+start is replaced by an ellipsis so the end stays in view. Keys sit below the
+header and never overlap it. They fill the rest of the panel, up to 1.5 times
+their width. The nine-key board keeps keys of at most 52 px. If the keys leave
+less than two header heights of the page visible above, the header takes that
+space and the keyboard covers the whole panel.
+
+PicoKVM and NanoKVM Go use the nine-key board. A tap types the first letter
+of a group. Holding a group shows its letters in a row of 36 px chips on a
+dark band above it, inside the panel and clear of rounded corners. The
+letter whose chip is under the finger is selected, starting with the one
+under the press point; outside the row, the nearest chip is selected. Moving
+the finger along the row changes the selection, and release types it, so
+every letter can be reached from any point on the key. The mode key names
+the mode in use and steps through abc, 123 (digits 0–9 as single keys), #+=
+and ABC. The #+= mode holds all 32 printable ASCII marks in nine groups of
+three or four, in rows of punctuation and quotes, paired brackets, then
+arithmetic and the rest. The grid board keeps abc, symbols and ABC, and its
+mode key names the next mode.
+Each model layout records the radius of the panel's rounded corners
+(NanoKVM Go: 40 px, not yet measured). On such a panel, keys keep their
+rounded outline inside the panel corners. The letter row shown while holding
+a group also stays clear of the corners. In the header, the field name, the
+typed text, the caret and the show/hide button, including the button's own
+rounded corners, keep at least 6 px from the corner arcs, measured from the
+corner centre. The header content starts 8 px below the top edge, the
+show/hide button (48×26 px) is centred on the typed line, and the typed text
+ends before it. The text keyboard's header is at least 47 px tall there, and
+other keyboards' at least 44 px. On the NanoKVM Go 284×240 panel, letter
+groups are 86×43 px, the action row has five 50×43 px keys, and IPv4 keys are
+86×34 px.
+
 Settings shows a focusable Back list row whenever the encoder is present,
 including devices with both touch and rotary input. Pure-touch devices keep
 their header/gesture navigation without this extra row. The same capability

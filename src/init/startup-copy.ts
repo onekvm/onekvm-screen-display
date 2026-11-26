@@ -70,6 +70,19 @@ export function startupMessage(code: string, lang: string): string {
   const copy = lang === "zh" ? messages.zh : lang === "zh_tw" ? messages.zh_tw : messages.en;
   return copy[code as keyof typeof copy] || "";
 }
+/** Title, message and buttons of the startup dialog for a startup state and code. */
+export function startupDialogCopy(lang: string, state: string, code: string) {
+  const c = lang === "zh" ? { title: "设备尚未就绪", starting: "正在启动", checking: "正在检查启动状态…", retry: "重新检查", back: "返回" }
+    : lang === "zh_tw" ? { title: "裝置尚未就緒", starting: "正在啟動", checking: "正在檢查啟動狀態…", retry: "重新檢查", back: "返回" }
+    : { title: "Device is not ready", starting: "Starting device", checking: "Checking startup status…", retry: "Check again", back: "Back" };
+  const waiting = state === "checking" || state === "starting";
+  return {
+    title: waiting ? c.starting : c.title,
+    message: state === "checking" ? c.checking : startupMessage(code, lang),
+    retry: c.retry,
+    back: c.back,
+  };
+}
 export function setupFailureCode(raw: string): string {
   const lower = raw.toLowerCase();
   if (raw.startsWith("startup:")) return raw.slice(8);

@@ -9,19 +9,19 @@ const powerActions = [
   { id: "off", title: "off" },
   { id: "reset", title: "reset" },
 ] as const;
-function readAtx(): Record<string, unknown> {
+function readPower(): Record<string, unknown> {
   try {
     const raw = JSON.parse(device()?.get?.("system") || "{}") as Record<string, unknown>;
-    return raw.atx && typeof raw.atx === "object" ? raw.atx as Record<string, unknown> : {};
+    return raw.power && typeof raw.power === "object" ? raw.power as Record<string, unknown> : {};
   } catch { return {}; }
 }
 export default function Power() {
   const t = useI18n();
   const screen = screenSize();
-  const atx = shallowRef(readAtx());
+  const state = shallowRef(readPower());
   const busy = shallowRef(false);
   const message = shallowRef<"" | "failed">("");
-  const available = computed(() => atx.value.available === true);
+  const available = computed(() => state.value.available === true);
   const back = () => device()?.set?.("launch", "launcher");
   const home = () => device()?.set?.("launch", "shell");
   const enabled = (index: number) => index === powerActions.length || (!busy.value && available.value);
@@ -37,7 +37,7 @@ export default function Power() {
     device()?.set?.("powerAction", action);
   };
   onFrame(() => {
-    atx.value = readAtx();
+    state.value = readPower();
     const response = device()?.get?.("appResponse") || "";
     if (response && response !== lastResponse) {
       lastResponse = response;
@@ -53,10 +53,10 @@ export default function Power() {
   const navigation = useActions({ count: () => powerActions.length + 1, initialSelection: -1,
     enabled, onBack: back, onHome: home,
     onAction: index => run(index === powerActions.length ? "back" : powerActions[index].id) });
-  const powered = computed(() => atx.value.pwr_led === true);
+  const powered = computed(() => state.value.pwr_led === true);
   const ledItems = computed(() => [
-    typeof atx.value.pwr_led === "boolean" ? `${t("powerLed")} ${t(atx.value.pwr_led ? "lit" : "unlit")}` : "",
-    typeof atx.value.hdd_led === "boolean" ? `${t("hddLed")} ${t(atx.value.hdd_led ? "active" : "idle")}` : "",
+    typeof state.value.pwr_led === "boolean" ? `${t("powerLed")} ${t(state.value.pwr_led ? "lit" : "unlit")}` : "",
+    typeof state.value.hdd_led === "boolean" ? `${t("hddLed")} ${t(state.value.hdd_led ? "active" : "idle")}` : "",
   ].filter(Boolean).join("  ·  "));
   return (
     <View class="relative w-full h-full bg-black flex flex-col items-center" style={{ width: screen.w, height: screen.h }}>
@@ -65,7 +65,7 @@ export default function Power() {
       <StatusCard width={screen.w} height={Math.min(ledItems.value ? 108 : 92, screen.h - 94)} busy={busy.value} offline={false}
         tone={!available.value ? "warning" : !powered.value ? "muted" : undefined}
         status={t(!available.value ? "disconnected" : powered.value ? "poweredOn" : "poweredOff")}
-        summary={t(available.value ? "hostPower" : "checkAtx")} detail={ledItems.value}
+        summary={t(available.value ? "hostPower" : "checkPower")} detail={ledItems.value}
         message={message.value ? t(message.value) : ""} />
       <ActionBar width={screen.w} actions={powerActions.map((item, index) => ({ id: item.id, label: t(item.title), disabled: !enabled(index) }))}
         selected={navigation.selected.value} onAction={navigation.press} />

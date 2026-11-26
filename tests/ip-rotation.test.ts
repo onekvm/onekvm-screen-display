@@ -39,3 +39,16 @@ test('older Core, missing primary IP, and empty networks remain usable', () => {
   assert.equal(expandHomeWidgetTemplate('{ip}|{primary_ip}', rotation.update(noPrimary, 21000)), '192.168.1.2|--')
   assert.equal(expandHomeWidgetTemplate('{ip}|{primary_ip}', rotation.update(normalizeHomeWidgetStatus({}), 22000)), '--|--')
 })
+
+test('only multiple addresses publish a refresh deadline', () => {
+  const rotation = createIpRotation()
+  assert.equal(rotation.deadline(), Infinity)
+  rotation.update(status(), 1000)
+  assert.equal(rotation.deadline(), 11000)
+  rotation.update(status(), 6000)
+  assert.equal(rotation.deadline(), 11000)
+  rotation.update(status(), 11000)
+  assert.equal(rotation.deadline(), 21000)
+  rotation.update(normalizeHomeWidgetStatus({ network: { ip: '10.0.0.1' } }), 12000)
+  assert.equal(rotation.deadline(), Infinity)
+})

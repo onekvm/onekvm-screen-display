@@ -53,6 +53,7 @@ const animations: number[][] = [];
 const networkReads: string[] = [];
 const networkWrites: string[] = [];
 const hotspotWrites: string[] = [];
+const wifiWrites: { ssid: string; password: string }[] = [];
 const propSets: number[][] = [];
 
 function testOps() {
@@ -133,6 +134,12 @@ const ops = testOps();
     }
     if (key === "netApply" || key === "wifiApApply") {
       (key === "netApply" ? networkWrites : hotspotWrites).push(value);
+      keys.set("setupBusy", "1");
+      keys.set("setupError", "");
+    }
+    if (key === "wifiConnect") {
+      // Like the host: the connection job is queued before set() returns.
+      wifiWrites.push(JSON.parse(value));
       keys.set("setupBusy", "1");
       keys.set("setupError", "");
     }
@@ -342,6 +349,128 @@ assert.ok(!wifiLabels.includes("Wi-Fi 7") && !wifiLabels.includes("Wi-Fi 5"), "h
 keys.set("wifiGeneration", ""); frame(); await nextTick();
 wifiLabels = texts(rootMirror as unknown as Mirror);
 assert.ok(!wifiLabels.includes("Wi-Fi 6") && !wifiLabels.includes("Wi-Fi 7"), "unknown hardware capability must not fall back to hotspot data");
+
+// Connecting can take most of a minute and fail before it works. Every
+// attempt ends in a visible result. Network names are placeholders.
+const wifiList = (joined = "") => JSON.stringify([
+  { ssid: "Office", security: "wpa2", bands: ["2.4", "5"], connected: joined === "Office" },
+  { ssid: "Lobby", security: "open", bands: ["2.4"], connected: joined === "Lobby" },
+  { ssid: "Studio", security: "wpa3", bands: ["5"], connected: false },
+  { ssid: "Annex", security: "wpa2-wpa3", bands: ["5"], connected: false },
+]);
+keys.set("wifiScan", wifiList());
+frame(); await nextTick();
+const wifiText = () => texts(rootMirror as unknown as Mirror);
+const wifiCaps = layoutKeys("text", 0, { w: 320, h: 172 }).caps;
+let wifiKey = 0;
+async function typeOnKnob(tokens: string[]) {
+  for (const token of tokens) {
+    const next = wifiCaps.findIndex(cap => cap.token === token);
+    assert.ok(next >= 0, `missing key ${token}`);
+    await act({ knob: next - wifiKey }); wifiKey = next; await act({ click: true });
+  }
+}
+// The host job ends; the page then asks for a fresh list.
+async function hostDone(error: string, joined = "") {
+  keys.set("setupBusy", "0"); keys.set("setupError", error);
+  frame(); await nextTick();
+  assert.equal(keys.get("wifiScan"), "1", "the attempt did not refresh the network list");
+  keys.set("wifiScan", wifiList(joined));
+  frame(); await nextTick();
+}
+const realWifiNow = Date.now;
+let wifiNow = realWifiNow();
+Date.now = () => wifiNow;
+assert.ok(pressRow("Office")); frame(); await nextTick();
+wifiKey = 0;
+await typeOnKnob(["p", "l", "a", "c", "e", "OK"]);
+assert.deepEqual(wifiWrites, [{ ssid: "Office", password: "place" }]);
+assert.ok(wifiText().includes("正在连接") && wifiText().includes("Office"), "Wi-Fi connection shows no progress");
+for (let second = 5; second <= 45; second += 5) {
+  wifiNow += 5000;
+  frame(); await nextTick();
+  if (second === 20) {
+    await act({ click: true });
+    keys.set("back", "1"); frame(); await nextTick(); keys.set("back", "0");
+  }
+  assert.ok(wifiText().includes("正在连接"), `slow connection lost its progress after ${second}s`);
+}
+assert.equal(wifiWrites.length, 1, "a pending connection accepted another request");
+// The first two attempts fail; Retry shows the kept password, OK reconnects.
+for (let attempt = 1; attempt <= 2; attempt += 1) {
+  await hostDone("wifi");
+  assert.ok(wifiText().includes("连接失败"), `failed attempt ${attempt} has no result`);
+  assert.ok(wifiText().includes("检查密码后重试"), "failure does not say what to do");
+  assert.ok(wifiText().includes("取消") && wifiText().includes("重试"));
+  assert.ok(pressRow("重试")); frame(); await nextTick();
+  assert.ok(!wifiText().includes("连接失败"), "Retry left the failure open");
+  wifiKey = 0;
+  await typeOnKnob(["OK"]);
+  assert.equal(wifiWrites.length, attempt + 1, `retry ${attempt} did not reconnect`);
+  assert.deepEqual(wifiWrites.at(-1), { ssid: "Office", password: "place" }, "retry lost the password");
+  assert.ok(wifiText().includes("正在连接"));
+}
+wifiNow += 35000;
+await hostDone("", "Office");
+assert.ok(wifiText().includes("已连接") && wifiText().includes("Office"), "successful connection has no result");
+assert.ok(pressRow("确定")); frame(); await nextTick();
+assert.ok(!wifiText().includes("确定"), "OK did not close the result");
+assert.ok(wifiText().includes("已连接"), "the joined network is not marked connected");
+// Open networks reconnect directly, and Cancel closes a failure.
+assert.ok(pressRow("Lobby")); frame(); await nextTick();
+assert.deepEqual(wifiWrites.at(-1), { ssid: "Lobby", password: "" });
+assert.ok(wifiText().includes("正在连接") && wifiText().includes("Lobby"));
+await hostDone("wifi");
+assert.ok(wifiText().includes("检查信号后重试"), "open network failure suggests a password");
+assert.ok(pressRow("重试")); frame(); await nextTick();
+assert.equal(wifiWrites.length, 5, "open network Retry did not reconnect");
+await hostDone("wifi");
+assert.ok(pressRow("取消")); frame(); await nextTick();
+assert.ok(!wifiText().includes("连接失败"), "Cancel did not close the failure");
+assert.equal(wifiWrites.length, 5, "Cancel reconnected");
+// Requests Core refuses say what to do.
+for (const [code, message] of [
+  ["wifi-busy", "无线正忙，请稍后重试"],
+  ["wifi-pending", "请在网页确认网络配置"],
+  ["wifi-ap-only", "请在网页退出仅热点模式"],
+  ["wifi-core", "无线不可用，请稍后重试"],
+]) {
+  assert.ok(pressRow("Lobby")); frame(); await nextTick();
+  await hostDone(code);
+  assert.ok(wifiText().includes(message), `${code} has no explanation`);
+  assert.ok(pressRow("取消")); frame(); await nextTick();
+}
+assert.ok(pressRow("Office")); frame(); await nextTick();
+wifiKey = 0;
+await typeOnKnob(["OK"]);
+await hostDone("wifi-password");
+assert.ok(wifiText().includes("密码需 8～63 个字符"), "password rule is not explained");
+assert.ok(pressRow("取消")); frame(); await nextTick();
+// An SAE-only network is refused at once, without a password or a request;
+// a WPA2/WPA3 network still asks for the password.
+const writesBefore = wifiWrites.length;
+assert.ok(pressRow("Studio")); frame(); await nextTick();
+assert.ok(wifiText().includes("不支持仅 WPA3 的网络"), "SAE-only network has no explanation");
+assert.ok(!wifiText().includes("重试") && !wifiText().includes("检查密码后重试"), "SAE-only network offers a retry");
+await act({ knob: 1 });
+await act({ click: true });
+assert.ok(!wifiText().includes("不支持仅 WPA3 的网络"), "OK did not close the notice");
+assert.equal(wifiWrites.length, writesBefore, "SAE-only network reached the host");
+assert.ok(pressRow("Studio")); frame(); await nextTick();
+assert.ok(pressRow("确定")); frame(); await nextTick();
+assert.ok(!wifiText().includes("不支持仅 WPA3 的网络"), "touch OK did not close the notice");
+assert.ok(pressRow("Annex")); frame(); await nextTick();
+assert.ok(wifiText().includes("密码"), "WPA2/WPA3 network did not ask for the password");
+keys.set("back", "1"); frame(); await nextTick(); keys.set("back", "0"); frame(); await nextTick();
+assert.equal(wifiWrites.length, writesBefore);
+// A failed connection with an empty list is not a failed scan.
+keys.set("wifiScan", "[]"); keys.set("setupError", "wifi"); frame(); await nextTick();
+assert.ok(wifiText().includes("未找到网络") && !wifiText().includes("扫描失败"), "a connect failure reads as a scan failure");
+keys.set("setupBusy", "1"); frame(); await nextTick();
+keys.set("setupBusy", "0"); keys.set("setupError", "scan"); frame(); await nextTick();
+assert.ok(wifiText().includes("扫描失败"), "a scan failure is not reported");
+keys.set("setupError", ""); keys.set("wifiScan", wifiList()); frame(); await nextTick();
+Date.now = realWifiNow;
 keys.set("back", "1"); frame(); await nextTick(); keys.set("back", "0");
 keys.set("wifiAp", "");
 keys.set("links", JSON.stringify([{ kind: "eth", name: "eth0" }]));

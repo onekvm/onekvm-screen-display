@@ -5,7 +5,7 @@ const zhTw: Messages = {
   noTouch: "此裝置無觸控螢幕", webMouse: "請在網頁端控制滑鼠", disconnected: "未連線",
   left: "左鍵", right: "右鍵", speed: "速度",
   power: "電源控制", on: "開機", off: "關機", reset: "重啟", back: "返回",
-  poweredOn: "已開機", poweredOff: "已關機", hostPower: "受控主機電源", checkAtx: "請檢查 ATX 介面",
+  poweredOn: "已開機", poweredOff: "已關機", hostPower: "受控主機電源", checkPower: "請檢查電源控制",
   powerLed: "電源燈", hddLed: "HDD 燈", lit: "亮", unlit: "滅", active: "活動", idle: "閒置",
   loginCode: "授權碼 {code}",
   loginExpiryHint: "5 分鐘內掃碼，過期重連",

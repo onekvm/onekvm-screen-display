@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 
-def check(root):
+def check(root, abi=None):
     sources = sorted(root.rglob("main.vue-vapor.js"))
     if not sources:
         raise ValueError(f"no screen bundles in {root}; run make app")
@@ -20,6 +20,8 @@ def check(root):
             "resources_sha256": hashlib.sha256(resource.read_bytes()).hexdigest(),
             "bytecode_sha256": hashlib.sha256(code.read_bytes()).hexdigest(),
         }
+        if abi is not None and expected["abi"] != abi:
+            raise ValueError(f"wrong screen bytecode ABI: {source.parent}: {expected['abi']!r}, expected {abi!r}")
         if meta != expected:
             raise ValueError(f"stale or mixed screen bundle: {source.parent}; run make app")
     return len(sources)
@@ -27,7 +29,7 @@ def check(root):
 
 if __name__ == "__main__":
     try:
-        count = check(Path(sys.argv[1] if len(sys.argv) > 1 else "dist"))
+        count = check(Path(sys.argv[1] if len(sys.argv) > 1 else "dist"), sys.argv[2] if len(sys.argv) > 2 else None)
         print(f"verified {count} screen bundles")
     except (OSError, ValueError, KeyError) as error:
         sys.exit(f"screen bundle check failed: {error}")

@@ -6,7 +6,7 @@ import { device, screenSize } from "../../../packages/screen-ui/src/device";
 import { COLOR, FONT } from "../../../packages/screen-ui/src/theme";
 import { useActions } from "../../../packages/screen-ui/src/useActions";
 import Keyboard from "../../../src/shell/Keyboard";
-import { applyToken, layoutKeys } from "../../../src/shell/keypad";
+import { applyToken, layoutKeys, nextKeyMode } from "../../../src/shell/keypad";
 import { useStrings } from "./i18n";
 import { activeBans, banFields, fields, fieldText, fieldValue, groups, patchField, readField, type Field, type Group } from "./model";
 import { SecurityList, type Row } from "./SecurityList";
@@ -54,7 +54,7 @@ export default function Security() {
     const next = applyToken(keyText.value, value, editor.value?.field.key.endsWith("trusted_proxies") ? 3072 : 512);
     if (next.action === "ok") { draft.value = next.value; keyboard.value = false; actions.selected.value = 1; }
     else if (next.action === "cancel") { keyboard.value = false; actions.selected.value = 0; }
-    else if (next.action === "mode") { mode.value = (mode.value + 1) % 3; actions.selected.value = 0; }
+    else if (next.action === "mode") { mode.value = nextKeyMode(mode.value, screen); actions.selected.value = 0; }
     else keyText.value = next.value;
   }
   function editAction(index: number) {

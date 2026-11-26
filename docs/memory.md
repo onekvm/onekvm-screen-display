@@ -25,6 +25,10 @@ onekvm-device-screen-display.service -p MemoryHigh -p MemoryMax -p MemorySwapMax
 
 Measure the complete process RSS from `/proc/PID/smaps_rollup`; the idle-home
 target is 10 MiB after a cold service start and after repeated App visits.
+The Web UI's resource monitor shows the service cgroup's `memory.current`,
+which also counts page cache the service read first and kernel memory. Check
+both after a full boot: a service restart moves the old cgroup's page cache
+charges to the parent slice and hides them.
 Include mapped executable/library pages, framebuffer mappings and native heaps.
 PSS, QuickJS allocation totals and cgroup charges are separate measurements.
 Measure the no-video session with its saved layout and complete media library
@@ -48,10 +52,28 @@ mapping.
 
 The Pro build uses its version-checked system OpenH264 backend instead of also
 linking an unused bundled codec. Its aborting executable omits native unwind
-tables and is optimized for size. After startup and App teardown, clean read-only
-pages of the executable are released while their mapping remains pinned; hot
-code faults back in on demand. Private dirty code pages are excluded. Other
-targets retain the bundled default.
+tables and is optimized for size. Other targets retain the bundled default.
+
+After startup, again 15 seconds into the main loop (the first frames still load
+fonts, launcher icons and PAK resources) and after App teardown, the host pages
+out the clean pages of its read-only file mappings: executable, libraries, PAK,
+bytecode and fonts (`MADV_PAGEOUT`; before Linux 5.4 nothing is released).
+The mappings stay pinned and hot pages fault back in on demand. Segments with
+private pages (dirty, anonymous or swapped), devices and memfds are excluded,
+and there is no `MADV_DONTNEED` fallback: it would discard private
+copy-on-write pages that smaps may report as swapped rather than dirty. Unlike
+`MADV_DONTNEED`, page-out also drops the pages from the page cache charged to
+the service. The once-per-second Shell collection keeps using `MADV_DONTNEED`
+so its hot bytecode refaults from the page cache, not from storage. Page-out
+cannot see pages that collection already unmapped, so the host then applies
+`POSIX_FADV_DONTNEED` to its own mapped files (not shared libraries, whose
+cache other processes use); pages that are still mapped stay resident.
+
+Catalog refreshes identify a bundle by its files' device, inode, size and
+timestamps rather than by reading them; packages replace bundle files
+atomically, so every update yields a new inode. Reading every installed App's
+JS, PAK and bytecode on each refresh kept them all in the page cache. Source
+hashing for packaged bytecode drops the source file's page cache afterwards.
 
 ## Page lifetime
 

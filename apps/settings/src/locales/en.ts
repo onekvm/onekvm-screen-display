@@ -67,6 +67,15 @@ export type Messages = {
   wired: string
   wifiOk: string
   wifiDown: string
+  wifiConnecting: string
+  wifiFailed: string
+  wifiCheckPassword: string
+  wifiCheckSignal: string
+  wifiBusy: string
+  wifiPending: string
+  wifiApOnly: string
+  wifiService: string
+  wifiWpa3Only: string
   scanning: string
   noNetworks: string
   scanFailed: string
@@ -223,6 +232,15 @@ const messages: Messages = {
   wired: 'Ethernet',
   wifiOk: 'Connected',
   wifiDown: 'Offline',
+  wifiConnecting: 'Connecting',
+  wifiFailed: 'Connection failed',
+  wifiCheckPassword: 'Check password and retry',
+  wifiCheckSignal: 'Check signal and retry',
+  wifiBusy: 'Wi-Fi busy. Retry later',
+  wifiPending: 'Confirm network on web',
+  wifiApOnly: "Exit hotspot-only on web",
+  wifiService: 'Wi-Fi down. Retry later',
+  wifiWpa3Only: 'WPA3-only not supported',
   scanning: 'Scanning',
   noNetworks: 'No networks',
   scanFailed: 'Scan failed',

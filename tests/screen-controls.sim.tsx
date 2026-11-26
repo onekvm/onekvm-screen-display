@@ -35,7 +35,7 @@ const rotary = scene === "power-rotary";
 const width = Number(process.env.SCREEN_SIM_WIDTH || 320);
 const keys = new Map<string, string>([
   ["screenW", String(width)], ["screenH", width === 320 ? "172" : "240"], ["knobSeq", "0"], ["language", language],
-  ["system", JSON.stringify({ atx: { available: true, pwr_led: true } })],
+  ["system", JSON.stringify({ power: { available: true, pwr_led: true } })],
   ["homePill", "1"],
   ["controls", JSON.stringify(scene === "stream" ? ["rotary"] : rotary ? ["touch", "rotary"] : ["touch"])],
   ["hid", "0"],
@@ -345,9 +345,9 @@ if (scene === "stream" || scene === "stick") {
     keys.set("appResponse", JSON.stringify({ busy: false, ok: false })); await frame();
     assert.ok(texts(rootMirror as unknown as Node).includes(labels.failed));
     assert.equal(texts(rootMirror as unknown as Node).some(text => text.startsWith({ en: "Power LED", zh: "电源灯", zh_tw: "電源燈" }[language as "en" | "zh" | "zh_tw"])), false, "an error must replace low-priority LED details on the compact card");
-    keys.set("system", JSON.stringify({ atx: { available: false, pwr_led: true } })); await frame();
+    keys.set("system", JSON.stringify({ power: { available: false, pwr_led: true } })); await frame();
     for (const label of [labels.on, labels.off, labels.reset]) buttonWithText(label)!.onPress!();
-    assert.deepEqual(powerCommands, ["off"], "unavailable ATX must disable all power commands");
+    assert.deepEqual(powerCommands, ["off"], "unavailable power control must disable all power commands");
     keys.set("appResponse", JSON.stringify({ busy: false, ok: true })); await frame();
   }
 }
