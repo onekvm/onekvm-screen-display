@@ -1,0 +1,21 @@
+{
+  "pocket": 2,
+  "id": "org.onekvm.screen-stream",
+  "name": "stream",
+  "title": "屏幕串流",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": ["input.buttons", "input.touch", "text.glyphs.baked"]
+    }
+  },
+  "app": {
+    "entry": "src/main.tsx",
+    "output": "stream",
+    "framework": "vue-vapor",
+    "viewport": {
+      "logical": [240, 240],
+      "presentation": "native"
+    }
+  }
+}

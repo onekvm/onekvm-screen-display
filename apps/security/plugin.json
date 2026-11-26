@@ -1,0 +1,9 @@
+{
+  "id": "security",
+  "title": "Security",
+  "i18n": { "zh": { "title": "安全" }, "zh_tw": { "title": "安全" } },
+  "icon": "security.png",
+  "slots": ["app"],
+  "controls": ["touch", "rotary"],
+  "order": 16
+}

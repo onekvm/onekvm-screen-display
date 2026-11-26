@@ -1,0 +1,23 @@
+{
+  "name": "onekvm-screen-display",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build:web": "vite build",
+    "check:web": "vue-tsc --noEmit",
+    "test:web": "bun test tests/*.test.ts",
+    "test:input": "bun scripts/test-input.ts"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "naive-ui": "^2.40.4",
+    "typescript": "^5.6.3",
+    "vite": "^6.2.1",
+    "vue": "^3.5.13",
+    "vue-tsc": "^2.2.0"
+  },
+  "dependencies": {
+    "@lucide/vue": "^1.27.0"
+  }
+}

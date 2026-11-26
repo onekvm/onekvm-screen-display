@@ -1,0 +1,9 @@
+{
+  "id": "power",
+  "title": "Power Control",
+  "i18n": { "zh": { "title": "电源控制" }, "zh_tw": { "title": "電源控制" } },
+  "icon": "power.png",
+  "slots": ["app"],
+  "controls": ["touch", "rotary"],
+  "order": 30
+}

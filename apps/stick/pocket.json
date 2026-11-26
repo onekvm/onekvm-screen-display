@@ -1,0 +1,21 @@
+{
+  "pocket": 2,
+  "id": "org.onekvm.screen-stick",
+  "name": "stick",
+  "title": "触摸板",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": ["input.buttons", "input.touch", "text.glyphs.baked"]
+    }
+  },
+  "app": {
+    "entry": "src/main.tsx",
+    "output": "stick",
+    "framework": "vue-vapor",
+    "viewport": {
+      "logical": [240, 240],
+      "presentation": "native"
+    }
+  }
+}

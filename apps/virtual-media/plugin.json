@@ -1,0 +1,5 @@
+{
+  "id": "virtual-media", "title": "Virtual media",
+  "i18n": { "zh": { "title": "虚拟媒体" }, "zh_tw": { "title": "虛擬媒體" } },
+  "icon": "icon.bin", "slots": ["app"], "controls": ["touch", "rotary"], "order": 18
+}

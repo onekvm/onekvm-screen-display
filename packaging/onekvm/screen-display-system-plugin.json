@@ -1,0 +1,147 @@
+{
+  "id": "screen-display",
+  "name": "Screen display",
+  "description": "Set the home screen and app list on this device.",
+  "i18n": {
+    "default": {
+      "name": "Screen display",
+      "description": "Set the home screen and app list on this device."
+    },
+    "zh": {
+      "name": "屏幕显示",
+      "description": "设置本机屏幕的主屏和应用列表。"
+    }
+  },
+  "kind": "device",
+  "version": "0.1.0",
+  "capabilities": [
+    "screen"
+  ],
+  "extension_points": [
+    {
+      "id": "screen-display.home",
+      "version": 1
+    },
+    {
+      "id": "screen-display.face",
+      "version": 1
+    },
+    {
+      "id": "screen-display.widget",
+      "version": 1
+    },
+    {
+      "id": "screen-display.app",
+      "version": 1
+    }
+  ],
+  "icon": {
+    "source": "lucide",
+    "name": "monitor"
+  },
+  "page": {
+    "title": "屏幕显示",
+    "renderer": "vue",
+    "entrypoint": "web/display-page.js",
+    "icon": {
+      "source": "lucide",
+      "name": "monitor"
+    }
+  },
+  "unit": "onekvm-device-screen-display.service",
+  "settings_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "brightness",
+      "rotate",
+      "app_view"
+    ],
+    "properties": {
+      "brightness": {
+        "type": "integer",
+        "title": "Brightness",
+        "i18n": {
+          "zh": "亮度"
+        },
+        "default": 100,
+        "minimum": 5,
+        "maximum": 100
+      },
+      "rotate": {
+        "type": "integer",
+        "title": "Rotation",
+        "i18n": {
+          "zh": "旋转方向"
+        },
+        "enum": [
+          0,
+          90,
+          180,
+          270
+        ],
+        "default": 0
+      },
+      "app_view": {
+        "type": "string",
+        "title": "App view",
+        "i18n": {
+          "zh": "App 显示方式"
+        },
+        "enum": [
+          "icons",
+          "list"
+        ],
+        "default": "list"
+      },
+      "layout_json": {
+        "type": "string",
+        "title": "Screen layout",
+        "i18n": {
+          "default": "Screen layout",
+          "zh": "屏幕布局"
+        },
+        "default": "{\"face\":\"screen-display/dashboard\",\"complications\":[],\"apps\":[],\"app_view\":\"list\"}",
+        "maxLength": 16384
+      },
+      "background_image": {
+        "type": "string",
+        "title": "Background image",
+        "i18n": {
+          "default": "Background image",
+          "zh": "背景图片"
+        },
+        "default": "",
+        "maxLength": 900000
+      },
+      "media_assets": {
+        "type": "string",
+        "title": "Widget media",
+        "i18n": {
+          "default": "Widget media",
+          "zh": "小组件媒体"
+        },
+        "default": "{\"v\":1,\"assets\":{}}"
+      }
+    }
+  },
+  "dbus": {
+    "bus_name": "org.onekvm.ScreenDisplay",
+    "object_path": "/org/onekvm/ScreenDisplay",
+    "interface": "org.onekvm.ScreenDisplay",
+    "get_settings": "GetSettings",
+    "update_settings": "UpdateSettings",
+    "methods": {
+      "status": "RemoteFrame",
+      "input": "RemoteInput"
+    }
+  },
+  "routes": [
+    {
+      "path": "remote",
+      "backend": "unix",
+      "socket": "remote.sock",
+      "auth": "session"
+    }
+  ]
+}

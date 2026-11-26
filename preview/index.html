@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>屏幕显示设置</title>
+  <style>
+    :root {
+      --void: #0a0a10;
+      --ink: #f4f0e6;
+      --mute: #8b8794;
+      --dim: #3a3842;
+      --amber: #ffb000;
+      --cyan: #6ee7ff;
+      --violet: #c4b5fd;
+      --ring: #2a2a32;
+      --tick: #5a5868;
+    }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #111;
+      display: grid;
+      place-items: center;
+      font-family: "SF Pro Display", "Avenir Next", "Outfit", sans-serif;
+    }
+    .watch {
+      width: 240px;
+      height: 240px;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 50% 42%, #16161f 0%, var(--void) 72%);
+      box-shadow: 0 0 0 4px var(--ring), 0 0 0 8px #050506;
+      color: var(--ink);
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+      user-select: none;
+    }
+    .watch.lock { box-shadow: 0 0 0 4px var(--amber), 0 0 0 8px #050506; }
+    .ticks {
+      position: absolute;
+      inset: 8px;
+    }
+    .tick {
+      position: absolute;
+      left: 50%;
+      top: 0;
+      width: 2px;
+      height: 8px;
+      margin-left: -1px;
+      background: var(--tick);
+      transform-origin: 50% 112px;
+    }
+    .tick.hour { height: 12px; background: var(--ink); }
+    .pip {
+      position: absolute;
+      left: 50%;
+      top: 6px;
+      width: 8px;
+      height: 8px;
+      margin-left: -4px;
+      border-radius: 50%;
+      background: var(--amber);
+      box-shadow: 0 0 0 2px #1a1200;
+      transform-origin: 50% 114px;
+    }
+    .home, .apps {
+      position: absolute;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .home.show, .apps.show { display: flex; }
+    .eyebrow {
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      font-weight: 700;
+      color: var(--amber);
+      z-index: 1;
+    }
+    .eyebrow.idle { color: var(--mute); }
+    .time {
+      font-size: 54px;
+      font-weight: 640;
+      letter-spacing: -0.05em;
+      line-height: 1;
+      margin: 8px 0 2px;
+      z-index: 1;
+    }
+    .date { font-size: 12px; color: var(--mute); z-index: 1; }
+    .orbs { display: flex; gap: 14px; margin: 14px 0 8px; z-index: 1; }
+    .orb {
+      width: 28px; height: 28px; border-radius: 50%;
+      border: 2px solid var(--dim);
+      display: grid; place-items: center;
+      font-size: 11px; font-weight: 700; color: var(--mute);
+    }
+    .orb.on-amber { border-color: var(--amber); color: var(--amber); }
+    .orb.on-cyan { border-color: var(--cyan); color: var(--cyan); }
+    .orb.on-violet { border-color: var(--violet); color: var(--violet); }
+    .ip { font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums; z-index: 1; }
+    .hint { font-size: 9px; letter-spacing: 0.16em; color: var(--dim); margin-top: 6px; z-index: 1; }
+    .honey {
+      display: flex;
+      flex-wrap: wrap;
+      width: 168px;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .app {
+      width: 72px; height: 72px; border-radius: 50%;
+      background: #12121a;
+      border: 3px solid var(--amber);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700;
+    }
+    .app.usb { border-color: var(--cyan); }
+    .app.net { border-color: var(--violet); }
+    .sub { font-size: 10px; color: var(--mute); font-weight: 500; }
+  </style>
+</head>
+<body>
+  <div class="watch lock" id="watch" role="button" aria-label="屏幕显示设置">
+    <div class="ticks" id="ticks"></div>
+    <div class="pip" id="pip"></div>
+    <div class="home show" id="home">
+      <div class="time" id="time">15:32</div>
+      <div class="date" id="date">TUE 15 SEP</div>
+    </div>
+    <div class="apps" id="apps">
+      <div class="honey">
+        <div class="app">⚙</div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const ticks = document.getElementById("ticks");
+    for (let i = 0; i < 12; i++) {
+      const t = document.createElement("div");
+      t.className = "tick" + (i % 3 === 0 ? " hour" : "");
+      t.style.transform = "rotate(" + (i * 30) + "deg)";
+      ticks.appendChild(t);
+    }
+    const watch = document.getElementById("watch");
+    const home = document.getElementById("home");
+    const apps = document.getElementById("apps");
+    const pip = document.getElementById("pip");
+    let face = "home";
+    function tick() {
+      const d = new Date();
+      document.getElementById("time").textContent =
+        String(d.getHours()).padStart(2, "0") + ":" +
+        String(d.getMinutes()).padStart(2, "0");
+      document.getElementById("date").textContent =
+        d.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" }).toUpperCase();
+      pip.style.transform = "rotate(" + (d.getSeconds() * 6) + "deg)";
+    }
+    tick();
+    setInterval(tick, 1000);
+    watch.addEventListener("click", () => {
+      face = face === "home" ? "apps" : "home";
+      home.classList.toggle("show", face === "home");
+      apps.classList.toggle("show", face === "apps");
+      pip.hidden = face !== "home";
+    });
+  </script>
+</body>
+</html>

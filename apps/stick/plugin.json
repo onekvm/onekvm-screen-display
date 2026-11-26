@@ -1,0 +1,12 @@
+{
+  "id": "stick",
+  "title": "Touchpad",
+  "i18n": {
+    "zh": { "title": "触摸板" },
+    "zh_tw": { "title": "觸控板" }
+  },
+  "icon": "stick.png",
+  "slots": ["app"],
+  "controls": ["touch"],
+  "order": 30
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@onekvm/screen-sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "exports": "./src/index.ts",
+  "bin": { "onekvm-screen": "./cli.ts" },
+  "peerDependencies": { "vue": "^3.5.0", "@onekvm/screen-ui": "^0.1.0" }
+}

@@ -1,0 +1,38 @@
+{
+  "manifest_version": 1,
+  "id": "screen-sdk-example",
+  "i18n": {
+    "default": {"name": "Screen SDK example", "description": "Try a custom home screen and an interactive counter component."},
+    "zh": {"name": "屏幕 SDK 示例", "description": "体验自定义主页和可交互的计数组件。"},
+    "zh-TW": {"name": "螢幕 SDK 範例", "description": "體驗自訂首頁與可互動的計數元件。"}
+  },
+  "version": "@VERSION@",
+  "api_version": 2,
+  "architecture": "@ARCH@",
+  "kind": "service",
+  "entrypoint": "bin/screen-sdk-example",
+  "permissions": [],
+  "capabilities": [],
+  "default_enabled": false,
+  "icon": {"source": "lucide", "name": "monitor"},
+  "methods": [
+    {"name": "status", "command": ["bin/screen-sdk-example", "status"]},
+    {"name": "increment", "command": ["bin/screen-sdk-example", "increment"]}
+  ],
+  "contributions": [
+    {"point": "screen-display.home", "id": "home", "version": 1,
+      "data": {"title": "SDK home", "i18n": {"zh": "SDK 主页", "zh_tw": "SDK 首頁"}, "bundle": "screen-home",
+        "runtime": "pocketjs-vue-vapor", "bridge_version": 2, "required_features": ["screen-surfaces-v1", "rpc", "state-events"],
+        "permissions": {"rpc": [{"methods": ["status", "increment"]}]}}},
+    {"point": "screen-display.widget", "id": "counter", "version": 1,
+      "data": {"title": "SDK counter", "i18n": {"zh": "SDK 计数", "zh_tw": "SDK 計數"}, "bundle": "screen-widget",
+        "runtime": "pocketjs-vue-vapor", "bridge_version": 2, "required_features": ["screen-surfaces-v1", "rpc", "state-events"],
+        "placement": ["free", "grid"], "preview": "0", "permissions": {"rpc": [{"methods": ["status", "increment"]}]}}}
+  ],
+  "settings_schema": {"type": "object", "additionalProperties": false, "required": ["service_enabled"],
+    "properties": {"service_enabled": {"type": "boolean", "title": "Background service", "default": false, "readOnly": true,
+      "i18n": {"default": "Background service", "zh": "后台服务", "zh-TW": "背景服務"}}}},
+  "secret_fields": [],
+  "resource_limits": {"memory_max": "8M", "cpu_quota": "5%", "tasks_max": 8, "limit_nofile": 32},
+  "healthcheck": {"type": "exec", "command": ["bin/screen-sdk-example", "--health"], "timeout_seconds": 5}
+}

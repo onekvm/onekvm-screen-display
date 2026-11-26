@@ -1,0 +1,6 @@
+{
+  "machine": "nanokvm-go",
+  "match": { "width": 240, "height": 284 },
+  "keyboard": "grid",
+  "welcome": "stack"
+}

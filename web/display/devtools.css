@@ -1,0 +1,29 @@
+
+.screen-display-page .display-page-tabs { min-width: 0; }
+.screen-devtools { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.screen-devtools .section-head > div { min-width: 0; }
+.dev-switch, .dev-actions { display: flex; align-items: center; gap: 10px; }
+.dev-switch { white-space: nowrap; font-size: 13px; }
+.dev-note, .dev-state { opacity: .65; font-size: 12px; }
+.dev-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 16px 0; }
+.dev-target { flex: 1 1 280px; min-width: 0; max-width: min(540px, 100%); }
+.dev-panels { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 12px; margin: 16px 0 24px; }
+.dev-panel { min-width: 0; border: 1px solid #80808030; border-radius: 8px; overflow: hidden; }
+.dev-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 4px 12px; border-bottom: 1px solid #80808030; font-size: 13px; }
+@media (max-width: 760px) { .dev-panels { grid-template-columns: minmax(0, 1fr); } .screen-devtools .section-head { flex-wrap: wrap; gap: 12px; } }
+
+
+.debug-tree { height: 280px; overflow: auto; font: 12px/1.6 ui-monospace, SFMono-Regular, monospace; }
+.debug-node { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 5px 12px; text-align: left; border: 0; background: transparent; color: inherit; cursor: pointer; white-space: nowrap; }
+.debug-node:hover, .debug-node:focus-visible { background: var(--screen-surface-hover, #80808020); }
+.debug-node-id, .debug-node-text, .debug-empty { opacity: .6; }
+.debug-node-text { overflow: hidden; text-overflow: ellipsis; }
+.debug-empty { padding: 12px; }
+
+
+.debug-output { height: 232px; overflow: auto; padding: 10px 12px; font: 12px/1.7 ui-monospace, SFMono-Regular, monospace; }
+.debug-line { white-space: pre-wrap; overflow-wrap: anywhere; border-bottom: 1px solid #80808018; padding: 2px 0; }
+.debug-error { color: #dc5353; }.debug-input { opacity: .65; }
+.debug-repl { display: flex; gap: 8px; padding: 8px; border-top: 1px solid #80808030; }
+
+.debug-repl > .n-input { min-width: 0; }

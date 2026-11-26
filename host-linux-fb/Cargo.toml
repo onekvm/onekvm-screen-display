@@ -1,0 +1,43 @@
+[package]
+name = "onekvm-screen-display"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "PocketJS Vue Vapor host for Linux framebuffer + evdev"
+
+[features]
+default = ["bundled-openh264", "compact-heap"]
+compact-heap = ["dep:dlmalloc"]
+bundled-openh264 = ["openh264/source"]
+system-openh264 = ["openh264/libloading"]
+platform-vdec = ["dep:onekvm-video"]
+
+[dependencies]
+pocketjs-core = { path = "../../tmp/pocketjs/engine/core", features = ["std"] }
+pocket-mod = { path = "../../tmp/pocketjs/engine/crates/pocket-mod" }
+pocket-ui-surface = { path = "../../tmp/pocketjs/engine/crates/pocket-ui-surface" }
+anyhow = "1"
+argon2 = "0.5"
+log = "0.4"
+env_logger = { version = "0.11", default-features = false }
+libc = "0.2"
+memmap2 = "0.9"
+dlmalloc = { version = "0.2.14", optional = true }
+ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
+ab_glyph_rasterizer = "0.1"
+evdev = "0.13"
+serde_json = "1"
+sha2 = "0.10"
+qrcodegen = "1"
+zbus = "5"
+mp4 = "0.14"
+openh264 = { version = "0.8.1", default-features = false }
+onekvm-video = { path = "../../onekvm-core/rust/crates/onekvm-video", optional = true }
+onekvm-net-address = { path = "../../onekvm-core/rust/crates/onekvm-net-address" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

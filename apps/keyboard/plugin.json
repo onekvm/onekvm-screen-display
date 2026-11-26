@@ -1,0 +1,5 @@
+{
+  "id": "keyboard", "title": "Keyboard",
+  "i18n": { "zh": { "title": "键盘" }, "zh_tw": { "title": "鍵盤" } },
+  "icon": "icon.bin", "slots": ["app"], "controls": ["touch", "rotary"], "order": 19
+}

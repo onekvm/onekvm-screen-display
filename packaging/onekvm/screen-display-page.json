@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "columns": 1,
+  "sections": [
+    {
+      "title": "Screen",
+      "i18n": {"default": "Screen", "zh": "屏幕"},
+      "columns": 1,
+      "settings": ["brightness", "rotate"]
+    },
+    {
+      "title": "Apps",
+      "i18n": {"default": "Apps", "zh": "应用"},
+      "columns": 1,
+      "settings": ["app_view"]
+    }
+  ]
+}

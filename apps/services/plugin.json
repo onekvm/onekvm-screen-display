@@ -1,0 +1,9 @@
+{
+  "id": "services",
+  "title": "Services",
+  "i18n": { "zh": { "title": "服务" }, "zh_tw": { "title": "服務" } },
+  "icon": "settings.png",
+  "slots": ["app"],
+  "controls": ["touch", "rotary"],
+  "order": 15
+}

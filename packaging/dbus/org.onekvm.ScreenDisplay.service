@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=org.onekvm.ScreenDisplay
+Exec=/usr/libexec/onekvm/onekvm-device-screen-display
+User=root
+SystemdService=onekvm-device-screen-display.service

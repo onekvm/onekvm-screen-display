@@ -1,0 +1,6 @@
+{
+  "machine": "picokvm",
+  "match": { "width": 240, "height": 240 },
+  "keyboard": "nine",
+  "welcome": "stack"
+}

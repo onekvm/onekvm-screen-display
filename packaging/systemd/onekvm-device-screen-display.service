@@ -1,0 +1,34 @@
+[Unit]
+Description=OneKVM screen display
+Requires=dbus.service
+# Local recovery must remain available when Core is stopped or cannot start.
+# Initialization checks Core readiness before submitting account settings.
+After=dbus.service systemd-udev-settle.service
+ConditionPathExists=/dev/fb0
+StartLimitIntervalSec=30
+StartLimitBurst=5
+
+[Service]
+Slice=system-onekvm.slice
+MemoryAccounting=yes
+# Bound the whole renderer, native assets, guests and RPC children together.
+MemoryHigh=192M
+MemoryMax=256M
+MemorySwapMax=0
+OOMPolicy=kill
+Type=dbus
+BusName=org.onekvm.ScreenDisplay
+Environment=POCKETJS_DIST=/usr/share/onekvm/screen-display
+Environment=ONEKVM_EXTENSION_DATA=/data/onekvm/app-data/screen-display
+# Keep the initialization/error screen available when persistent storage is
+# missing, full or read-only. The host falls back to in-memory defaults.
+ExecStartPre=-/bin/mkdir -p /data/onekvm/app-data/screen-display
+# No args: the binary is the entry and execs init or main.
+# Init exits 0 after setup. Restart=always runs the entry again,
+# which then execs main. systemctl stop does not restart it.
+ExecStart=/usr/libexec/onekvm/onekvm-device-screen-display
+Restart=always
+RestartSec=1s
+
+[Install]
+WantedBy=onekvm.service multi-user.target

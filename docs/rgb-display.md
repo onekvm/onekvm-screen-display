@@ -1,0 +1,13 @@
+# 本地串流画面
+
+屏幕服务继续通过 Core 的 `video=display`、`shm-ring-v1` RGB565 通道获取实时串流画面；素材库中的 MP4 由屏幕服务解封装，并交给通用的 H.264 VDEC ABI 或 OpenH264 后端。VDEC ABI 不绑定 AX630C：后端通过能力表声明 H.264 和输出格式，屏幕端按 `RGB565 → NV12 → NV21 → YUV420P` 的顺序选择，随后只复制带 stride 的有效行到复用缓冲区。硬件输出为 RGB565 时直接交给合成器，NV12/NV21 只在合成到面板时转换，软件 OpenH264 保持 I420 路径。
+
+支持 VDEC 的机器以 `vdec` machine feature 编译屏幕服务，并由该机型的设备包提供对应的 video backend descriptor 和 DSO；AX630C 只是当前 Pro 的一个实现。VDEC 能力或格式不满足时，服务报告后端错误，不把硬件会话静默改成另一种输出格式。
+
+视频播放器在渲染落后超过八个样本时从目标时间之前最近的关键帧重新开始，丢弃过期样本；硬件复制、解码、合成和跳帧计数通过 `onekvm_screen_display::profile` debug 日志输出。所有复用缓冲只在尺寸或格式变化时扩容。
+
+共享内存环每次等待 200 ms。短暂停帧保留上一张画面；连接关闭或错误后重新连接 RGB 通道。十秒没有帧会重新连接，启动等待从打开连接时计算，不能把此前屏幕空闲时间算进断流时间。
+
+服务在 `system-onekvm.slice` 中运行。授权文件登记准确的 `onekvm-device-screen-display.service` 身份，仅授予 `video.display` 和 `hid`；Core 同时核对内核提供的 Unix peer 身份。凭据文件与兼容旧 Core 的 token 均为 0600。不能关闭身份检查来解决画面不可用。
+
+AP 配网页面按面板比例布局：横屏采用左侧二维码、右侧连接信息，方屏采用上下布局。初始化页面与正常 Shell 复用同一组件，SSID 与密码按可用宽度换行。
